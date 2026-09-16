@@ -27,6 +27,7 @@ import { AppSettings, ChatMessage, UserRecord } from "@/lib/types";
 import { formatMessageTime } from "@/lib/time";
 import { formatMessageDay } from "@/lib/day-label";
 import { MessageCards } from "./cards";
+import { WhatsAppText } from "./wa-text";
 import { cn } from "@/lib/utils";
 
 const LS = "balance.user.cache";
@@ -724,15 +725,15 @@ function Bubble({ message }: { message: ChatMessage }) {
     <div className={cn("mb-1 flex", mine ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-[85%] rounded-lg px-2 pt-1.5 pb-1 shadow md:max-w-[65%]",
+          "max-w-[min(85%,32rem)] rounded-lg px-2 pt-1.5 pb-1 shadow",
           mine
             ? "rounded-tr-none bg-[#005c4b]"
             : "rounded-tl-none bg-[#202c33]",
         )}
       >
-        <p className="whitespace-pre-wrap text-[14.2px] leading-[19px] text-[#e9edef]">
-          {message.text}
-        </p>
+        <div className="whitespace-pre-wrap break-words text-[14.2px] leading-[19px] text-[#e9edef] [overflow-wrap:anywhere]">
+          <WhatsAppText text={message.text} />
+        </div>
         <MessageCards message={message} />
         <p className="mt-0.5 flex items-center justify-end gap-1 text-[11px] text-[#ffffff99]">
           {formatMessageTime(message.createdAt)}

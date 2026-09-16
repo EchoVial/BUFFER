@@ -35,7 +35,7 @@ function userText(text: string): ChatMessage {
 function greeting(name: string): ChatMessage[] {
   return [
     botText(
-      `hey ${name.split(" ")[0]} 👋 i'm Balance. think of me as the friend who actually remembers your calendar *and* tells you to leave the laptop.\n\ntext me like you text anyone — "gym tmrw 7pm", "i want 2 hrs of social every day", "rundown", "remind me to send the deck, p0".\n\nwhat's one thing on your plate today?`,
+      `hey ${name.split(" ")[0]} 👋 i'm *Balance*. think of me as the friend who actually remembers your calendar *and* tells you to leave the laptop.\n\ntext me like you text anyone — gym tmrw 7pm, i want 2 hrs of social every day, *rundown*, remind me to send the deck p0.\n\nwhat's one thing on your plate today?`,
     ),
   ];
 }
@@ -52,7 +52,7 @@ function helpText(): string {
     "• rundown / what's today",
     "• overlaps?",
     "• done with the deck",
-    "when you drop an event i'll ask the missing bits, then show how to-dos slide around before we lock it.",
+    "when you drop an event i'll ask the missing bits, then show how to-dos slide around. reply *lock it* when the plan looks right.",
   ].join("\n");
 }
 
@@ -62,7 +62,7 @@ function renderTodos(user: UserRecord): string[] {
   const line = (t: TodoItem, pad: string) => {
     const mark = t.done ? "✓" : "○";
     const due = t.dueDate ? ` · due ${prettyDate(t.dueDate)}` : "";
-    return `${pad}${mark} [${t.priority.toUpperCase()}] ${t.title} (${durationLabel(t.estimatedMinutes)})${due}`;
+    return `${pad}${mark} *${t.priority.toUpperCase()}* ${t.title} (${durationLabel(t.estimatedMinutes)})${due}`;
   };
   const out: string[] = [];
   const walk = (t: TodoItem, depth: number) => {
@@ -174,7 +174,7 @@ export function processTurn(
     const plan = buildDayPlan(next, ev.date);
     push(
       botText(
-        `locked. "${ev.title}" is on ${prettyDate(ev.date)} at ${formatClock(ev.start)}. i'll nudge you ${next.settings.reminderLeadMinutes} min before.`,
+        `locked. *${ev.title}* is on ${prettyDate(ev.date)} at ${formatClock(ev.start)}. i'll nudge you ${next.settings.reminderLeadMinutes} min before.`,
         {
           type: "schedule",
           date: ev.date,
@@ -206,7 +206,7 @@ export function processTurn(
       next.draft = { ...next.draft, proposal, missing: [] };
       push(
         botText(
-          `ok here's the move-around for "${ev.title}". reply *lock it* to save, or tweak the time.`,
+          `ok here's the move-around for *${ev.title}*. reply *lock it* to save, or tweak the time.`,
           proposal,
         ),
       );
@@ -235,7 +235,7 @@ export function processTurn(
     const plan = buildDayPlan(next, today);
     push(
       botText(
-        `${prettyDate(today)} rundown — ${statsLine(plan.stats)}`,
+        `${prettyDate(today)} *rundown* — ${statsLine(plan.stats)}`,
         {
           type: "schedule",
           date: today,
@@ -278,7 +278,7 @@ export function processTurn(
         t.id === hit.id ? { ...t, done: true } : t,
       );
       push(
-        botText(`nice. "${hit.title}" is done. keep the streak without stacking another 3 tasks on top.`),
+        botText(`nice. *${hit.title}* is done. keep the streak without stacking another 3 tasks on top.`),
       );
     }
   } else if (parsed.intent === "add_todo") {
@@ -302,7 +302,7 @@ export function processTurn(
     const plan = buildDayPlan(next, today);
     push(
       botText(
-        `added "${todo.title}" as ${todo.priority.toUpperCase()}${parentId ? " under its parent" : ""} · ${durationLabel(todo.estimatedMinutes)}. here's how today would absorb it:`,
+        `added *${todo.title}* as ${todo.priority.toUpperCase()}${parentId ? " under its parent" : ""} · ${durationLabel(todo.estimatedMinutes)}. here's how today would absorb it:`,
         {
           type: "schedule",
           date: today,
@@ -328,7 +328,7 @@ export function processTurn(
       next.draft = { type: "event", event: ev, missing: [], proposal };
       push(
         botText(
-          `ok here's the move-around for "${full.title}". reply *lock it* to save, or say a different time.`,
+          `ok here's the move-around for *${full.title}*. reply *lock it* to save, or say a different time.`,
           proposal,
         ),
       );
@@ -402,7 +402,7 @@ export function dueReminders(user: UserRecord): ChatMessage[] {
   });
   return due.map((e) =>
     botText(
-      `heads up — "${e.title}" starts at ${formatClock(e.start)} (${e.kind}). wrap what you're doing; this is the reminder you asked for.`,
+      `heads up — *${e.title}* starts at ${formatClock(e.start)} (${e.kind}). wrap what you're doing; this is the reminder you asked for.`,
     ),
   );
 }
