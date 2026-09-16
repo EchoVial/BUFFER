@@ -123,8 +123,10 @@ export function AdminDashboard() {
           <CardHeader>
             <CardTitle>Balance admin</CardTitle>
             <CardDescription>
-              Debug users, chats, and default life-balance parameters. Default password is{" "}
-              <code>balance123</code> unless you set <code>ADMIN_PASSWORD</code>.
+              Debug users, chats, and default life-balance parameters.
+              Local password is <code>balance123</code>. On Vercel, use the{" "}
+              <code>ADMIN_PASSWORD</code> you set in Project → Settings → Environment
+              Variables.
             </CardDescription>
           </CardHeader>
           <CardContent>

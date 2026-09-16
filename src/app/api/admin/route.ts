@@ -7,12 +7,22 @@ import {
   getUserById,
   listUsers,
   patchAppSettings,
+  persistBackend,
   upsertUser,
 } from "@/lib/store";
 import { DEFAULT_USER_SETTINGS, UserSettings } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
+
+function expectedPassword(): string | null {
+  if (process.env.ADMIN_PASSWORD) return process.env.ADMIN_PASSWORD;
+  if (process.env.VERCEL) return null;
+  return "balance123";
+}
+
 function adminOk(req: NextRequest): boolean {
-  const expected = process.env.ADMIN_PASSWORD || "balance123";
+  const expected = expectedPassword();
+  if (!expected) return false;
   const got =
     req.headers.get("x-admin-password") ||
     req.nextUrl.searchParams.get("password") ||
@@ -21,18 +31,26 @@ function adminOk(req: NextRequest): boolean {
 }
 
 function deny() {
-  return NextResponse.json({ error: "Wrong admin password." }, { status: 401 });
+  const missing = process.env.VERCEL && !process.env.ADMIN_PASSWORD;
+  return NextResponse.json(
+    {
+      error: missing
+        ? "Set ADMIN_PASSWORD in Vercel → Project → Settings → Environment Variables, then redeploy."
+        : "Wrong admin password.",
+    },
+    { status: 401 },
+  );
 }
 
 export async function GET(req: NextRequest) {
   if (!adminOk(req)) return deny();
   const id = req.nextUrl.searchParams.get("userId");
   if (id) {
-    const user = getUserById(id);
+    const user = await getUserById(id);
     if (!user) return NextResponse.json({ error: "not found" }, { status: 404 });
-    return NextResponse.json({ user, settings: getAppSettings() });
+    return NextResponse.json({ user, settings: await getAppSettings() });
   }
-  const users = listUsers().map((u) => ({
+  const users = (await listUsers()).map((u) => ({
     id: u.id,
     name: u.name,
     createdAt: u.createdAt,
@@ -45,14 +63,17 @@ export async function GET(req: NextRequest) {
     notes: u.notes,
     settings: u.settings,
   }));
+  const backend = persistBackend();
   return NextResponse.json({
-    settings: getAppSettings(),
+    settings: await getAppSettings(),
     users,
     env: {
       persistHint:
-        process.env.VERCEL === "1"
-          ? "Running on Vercel: memory + /tmp. Pair with user local cache. For durable multi-instance storage, add a database later."
-          : "Local filesystem store at data/store.json",
+        backend === "kv"
+          ? "Durable store: Vercel KV / Upstash Redis."
+          : backend === "memory"
+            ? "Vercel memory + each user's browser cache. Add KV_REST_API_URL and KV_REST_API_TOKEN for data that survives deploys."
+            : "Local filesystem store at data/store.json",
     },
   });
 }
@@ -72,27 +93,28 @@ export async function POST(req: NextRequest) {
     if (!body.name?.trim()) {
       return NextResponse.json({ error: "Name required" }, { status: 400 });
     }
-    const user = createUser(body.name, {
+    const user = await createUser(body.name, {
       notes: body.notes,
       settings: body.settings,
     });
     return NextResponse.json({ user });
   }
   if (body.action === "patch-settings") {
-    const settings = patchAppSettings({
+    const current = await getAppSettings();
+    const settings = await patchAppSettings({
       ...body.appSettings,
       defaultUserSettings: {
         ...DEFAULT_USER_SETTINGS,
-        ...getAppSettings().defaultUserSettings,
+        ...current.defaultUserSettings,
         ...body.defaultUserSettings,
       },
     });
     return NextResponse.json({ settings });
   }
   if (body.action === "patch-user" && body.userId) {
-    const user = getUserById(body.userId);
+    const user = await getUserById(body.userId);
     if (!user) return NextResponse.json({ error: "not found" }, { status: 404 });
-    const saved = upsertUser({
+    const saved = await upsertUser({
       ...user,
       notes: body.notes ?? user.notes,
       settings: { ...user.settings, ...body.settings },
@@ -100,9 +122,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ user: saved });
   }
   if (body.action === "reset-user" && body.userId) {
-    const user = getUserById(body.userId);
+    const user = await getUserById(body.userId);
     if (!user) return NextResponse.json({ error: "not found" }, { status: 404 });
-    const saved = upsertUser({
+    const saved = await upsertUser({
       ...user,
       events: [],
       todos: [],
@@ -114,11 +136,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ user: saved });
   }
   if (body.action === "delete-user" && body.userId) {
-    deleteUser(body.userId);
+    await deleteUser(body.userId);
     return NextResponse.json({ ok: true });
   }
   if (body.action === "export") {
-    return NextResponse.json({ store: getStore() });
+    return NextResponse.json({ store: await getStore() });
   }
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
 }

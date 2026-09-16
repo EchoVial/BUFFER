@@ -2,18 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { createUser, getAppSettings, getUserById, getUserByName, upsertUser } from "@/lib/store";
 import { greeting } from "@/lib/bot";
 
+export const dynamic = "force-dynamic";
+
 const COOKIE = "balance_user";
 
 export async function GET(req: NextRequest) {
+  const settings = await getAppSettings();
   const id = req.cookies.get(COOKIE)?.value;
-  if (!id) return NextResponse.json({ user: null, settings: getAppSettings() });
-  const user = getUserById(id);
+  if (!id) return NextResponse.json({ user: null, settings });
+  const user = await getUserById(id);
   if (!user) {
-    const res = NextResponse.json({ user: null, settings: getAppSettings() });
+    const res = NextResponse.json({ user: null, settings });
     res.cookies.set(COOKIE, "", { path: "/", maxAge: 0 });
     return res;
   }
-  return NextResponse.json({ user, settings: getAppSettings() });
+  return NextResponse.json({ user, settings });
 }
 
 export async function POST(req: NextRequest) {
@@ -22,8 +25,8 @@ export async function POST(req: NextRequest) {
   if (name.length < 2) {
     return NextResponse.json({ error: "Tell me your name (at least 2 letters)." }, { status: 400 });
   }
-  const settings = getAppSettings();
-  let user = getUserByName(name);
+  const settings = await getAppSettings();
+  let user = await getUserByName(name);
   if (!user) {
     if (!settings.allowAutoCreateUsers) {
       return NextResponse.json(
@@ -31,11 +34,11 @@ export async function POST(req: NextRequest) {
         { status: 403 },
       );
     }
-    user = createUser(name, {
+    user = await createUser(name, {
       settings: body.timezone ? { timezone: body.timezone } : undefined,
     });
   } else if (body.timezone) {
-    user = upsertUser({
+    user = await upsertUser({
       ...user,
       settings: { ...user.settings, timezone: body.timezone },
     });
@@ -55,7 +58,7 @@ export async function POST(req: NextRequest) {
       ],
     };
   }
-  user = upsertUser(user);
+  user = await upsertUser(user);
   const res = NextResponse.json({ user, settings });
   res.cookies.set(COOKIE, user.id, {
     httpOnly: false,

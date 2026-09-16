@@ -3,14 +3,19 @@ import { getUserById, mergeIncomingUser, upsertUser } from "@/lib/store";
 import { dueReminders, processTurn } from "@/lib/bot";
 import type { UserRecord } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   const body = (await req.json()) as {
     text?: string;
     user?: UserRecord;
     userId?: string;
   };
-  const user =
-    body.user ? mergeIncomingUser(body.user) : body.userId ? getUserById(body.userId) : undefined;
+  const user = body.user
+    ? await mergeIncomingUser(body.user)
+    : body.userId
+      ? await getUserById(body.userId)
+      : undefined;
   if (!user) {
     return NextResponse.json({ error: "No user session." }, { status: 401 });
   }
@@ -19,25 +24,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Empty message." }, { status: 400 });
   }
   const result = processTurn(user, text);
-  const saved = upsertUser(result.user);
+  const saved = await upsertUser(result.user);
   return NextResponse.json({ user: saved, replies: result.replies });
 }
 
 export async function PUT(req: NextRequest) {
   const body = (await req.json()) as { user?: UserRecord };
   if (!body.user) return NextResponse.json({ error: "Missing user" }, { status: 400 });
-  const saved = mergeIncomingUser(body.user);
+  const saved = await mergeIncomingUser(body.user);
   return NextResponse.json({ user: saved });
 }
 
 export async function GET(req: NextRequest) {
   const userId = req.nextUrl.searchParams.get("userId");
   if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
-  const user = getUserById(userId);
+  const user = await getUserById(userId);
   if (!user) return NextResponse.json({ error: "not found" }, { status: 404 });
   const extra = dueReminders(user);
   if (extra.length) {
-    const saved = upsertUser({
+    const saved = await upsertUser({
       ...user,
       messages: [...user.messages, ...extra],
       remindedEventIds: [
