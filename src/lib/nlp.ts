@@ -406,7 +406,7 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
   } else if (/\b(help|what can you|how do i|commands)\b/.test(normalized)) {
     intent = "help";
   } else if (
-    /\b(add to calendar|google calendar|apple calendar|android calendar|put it on my calendar|export to calendar)\b/.test(
+    /\b(add to calendar|google calendar|apple calendar|android calendar|outlook calendar|connect calendar|subscribe calendar|sync calendar|put it on my calendar|export to calendar)\b/.test(
       normalized,
     )
   ) {

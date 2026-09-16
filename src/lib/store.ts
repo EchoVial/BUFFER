@@ -136,6 +136,13 @@ export async function getUserById(id: string): Promise<UserRecord | undefined> {
   return Object.values((await getStore()).users).find((u) => u.id === id);
 }
 
+export async function getUserByCalendarToken(
+  token: string,
+): Promise<UserRecord | undefined> {
+  if (!token) return undefined;
+  return Object.values((await getStore()).users).find((u) => u.calendarToken === token);
+}
+
 export async function getUserByName(name: string): Promise<UserRecord | undefined> {
   const key = nameKey(name);
   const store = await getStore();
@@ -144,7 +151,12 @@ export async function getUserByName(name: string): Promise<UserRecord | undefine
 
 export async function upsertUser(user: UserRecord): Promise<UserRecord> {
   const store = await getStore();
-  store.users[user.id] = { ...user, updatedAt: new Date().toISOString() };
+  const next = {
+    ...user,
+    calendarToken: user.calendarToken || uid("cal"),
+    updatedAt: new Date().toISOString(),
+  };
+  store.users[user.id] = next;
   await saveStore(store);
   return store.users[user.id];
 }

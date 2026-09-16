@@ -11,9 +11,9 @@ const googleSans = Google_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Balance — WhatsApp for work-life",
+  title: "Balance — chat that syncs to your calendar",
   description:
-    "A WhatsApp-style chatbot that plans events, stacks to-dos, flags overlaps, and protects social time.",
+    "WhatsApp-style work-life chat. Subscribe Google, Apple, Android, or Outlook to a live Balance calendar feed.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

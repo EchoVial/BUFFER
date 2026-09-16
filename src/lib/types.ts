@@ -47,7 +47,7 @@ export interface ReplyButton {
   id: string;
   title: string;
   payload?: string;
-  action?: "reply" | "google-cal" | "ics";
+  action?: "reply" | "google-cal" | "ics" | "connect-feed";
 }
 
 export interface ListRow {
@@ -142,6 +142,7 @@ export interface UserRecord {
   messages: ChatMessage[];
   draft: ConversationDraft;
   remindedEventIds: string[];
+  calendarToken?: string;
   lastNlp?: NlpDebug;
   notes?: string;
 }

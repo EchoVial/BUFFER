@@ -1,5 +1,5 @@
-import { WhatsAppApp } from "@/components/whatsapp/WhatsAppApp";
+import { LandingPage } from "@/components/site/LandingPage";
 
 export default function Page() {
-  return <WhatsAppApp />;
+  return <LandingPage />;
 }

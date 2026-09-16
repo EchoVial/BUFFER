@@ -27,6 +27,7 @@ import { AppSettings, ChatMessage, ReplyButton, UserRecord } from "@/lib/types";
 import { formatMessageTime } from "@/lib/time";
 import { formatMessageDay } from "@/lib/day-label";
 import { downloadIcs, eventToIcs, googleCalendarUrl } from "@/lib/calendar";
+import { CalendarConnect } from "@/components/calendar/CalendarConnect";
 import { MessageCards } from "./cards";
 import { WhatsAppText } from "./wa-text";
 import { ListTrigger, ReplyButtons, WhatsAppListSheet } from "./interactive";
@@ -54,6 +55,7 @@ export function WhatsAppApp() {
   const [infoOpen, setInfoOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [listFor, setListFor] = useState<ChatMessage | null>(null);
+  const [calOpen, setCalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
@@ -304,7 +306,7 @@ export function WhatsAppApp() {
       ? []
       : last?.card?.type === "proposal"
         ? ["lock it", "nah, cancel", "make it 30m later"]
-        : ["rundown", "my todos", "add to calendar", "help"];
+        : ["rundown", "my todos", "connect calendar", "help"];
 
   function handleReplyButton(message: ChatMessage, button: ReplyButton) {
     const tz = user?.settings.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -325,6 +327,10 @@ export function WhatsAppApp() {
         return;
       }
       downloadIcs(event.title, eventToIcs(event, tz));
+      return;
+    }
+    if (button.action === "connect-feed") {
+      setCalOpen(true);
       return;
     }
     void send(button.payload || button.title);
@@ -349,6 +355,12 @@ export function WhatsAppApp() {
                 {awaitingName ? "Balance wants your name" : "Work-life chat is live"}
               </p>
             </div>
+            <Link
+              href="/"
+              className="rounded-full px-2 py-1 text-[11px] text-[#8696a0] hover:bg-white/5"
+            >
+              Site
+            </Link>
             <Link
               href="/admin"
               className="rounded-full px-2 py-1 text-[11px] text-[#00a884] hover:bg-white/5"
@@ -518,6 +530,15 @@ export function WhatsAppApp() {
                   </button>
                   <button
                     className="block w-full px-4 py-2 text-left hover:bg-white/5"
+                    onClick={() => {
+                      setCalOpen(true);
+                      setMenuOpen(false);
+                    }}
+                  >
+                    Connect calendar
+                  </button>
+                  <button
+                    className="block w-full px-4 py-2 text-left hover:bg-white/5"
                     onClick={() => void signOut()}
                   >
                     Switch person
@@ -583,7 +604,7 @@ export function WhatsAppApp() {
               {chips.map((c) => (
                 <button
                   key={c}
-                  onClick={() => void send(c)}
+                  onClick={() => (c === "connect calendar" ? setCalOpen(true) : void send(c))}
                   className="shrink-0 rounded-full border border-[#00a884]/40 bg-[#202c33] px-3 py-1 text-[13px] text-[#00a884]"
                 >
                   {c}
@@ -645,7 +666,7 @@ export function WhatsAppApp() {
                     ["📅 New event", "plan "],
                     ["✅ New to-do", "remind me to "],
                     ["📋 Today's rundown", "rundown"],
-                    ["📆 Add to calendar", "add to calendar"],
+                    ["📆 Connect calendar", "connect calendar"],
                     ["⚖️ My rules", "i want "],
                   ].map(([label, fill]) => (
                     <button
@@ -654,6 +675,11 @@ export function WhatsAppApp() {
                       className="block w-full px-4 py-2 text-left hover:bg-white/5"
                       onClick={() => {
                         if (fill === "rundown") void send("rundown");
+                        else if (fill === "connect calendar") {
+                          setCalOpen(true);
+                          setPlusOpen(false);
+                          return;
+                        }
                         else if (composer.current) {
                           composer.current.value = fill;
                           setDraft(fill);
@@ -745,8 +771,47 @@ export function WhatsAppApp() {
                   {user.messages.length} messages · {user.events.length} events · {user.todos.length}{" "}
                   to-dos
                 </p>
+                <button
+                  type="button"
+                  className="mt-2 text-[#00a884]"
+                  onClick={() => {
+                    setInfoOpen(false);
+                    setCalOpen(true);
+                  }}
+                >
+                  Connect Google / Apple / Android / Outlook
+                </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+      {calOpen && (
+        <div
+          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/55 md:items-center"
+          onClick={() => setCalOpen(false)}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-[#111b21] p-5 md:rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {user ? (
+              <CalendarConnect
+                user={user}
+                origin={typeof window === "undefined" ? "" : window.location.origin}
+              />
+            ) : (
+              <p className="text-sm text-[#8696a0]">
+                Say your name in chat first so we can mint a private feed.
+              </p>
+            )}
+            <button
+              type="button"
+              className="mt-4 w-full rounded-lg bg-[#202c33] py-2.5 text-[14px]"
+              onClick={() => setCalOpen(false)}
+            >
+              Close
+            </button>
           </div>
         </div>
       )}

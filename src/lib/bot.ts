@@ -52,9 +52,9 @@ const PROPOSAL_BUTTONS: ReplyButton[] = [
 ];
 
 const CALENDAR_BUTTONS: ReplyButton[] = [
-  { id: "gcal", title: "Google Calendar", action: "google-cal" },
-  { id: "ics", title: "Apple / Android", action: "ics" },
-  { id: "rundown", title: "Rundown", payload: "rundown" },
+  { id: "connect", title: "Connect calendar", action: "connect-feed" },
+  { id: "gcal", title: "Google (this event)", action: "google-cal" },
+  { id: "ics", title: "Download .ics", action: "ics" },
 ];
 
 const KIND_BUTTONS: ReplyButton[] = [
@@ -101,9 +101,9 @@ const START_LIST: InteractiveList = {
         },
         {
           id: "cal",
-          title: "Add to my calendar",
-          description: "Google, Apple, or Android",
-          payload: "add to calendar",
+          title: "Connect my calendar",
+          description: "Google, Apple, Android, Outlook",
+          payload: "connect calendar",
         },
         {
           id: "help",
@@ -151,8 +151,8 @@ function helpText(): string {
     "• rundown / what's today",
     "• overlaps?",
     "• done with the deck",
-    "• add to calendar",
-    "when you drop an event i'll ask the missing bits, then show how to-dos slide around. tap *Lock it* when the plan looks right.",
+    "• add to calendar / connect calendar",
+    "when you drop an event i'll ask the missing bits, then show how to-dos slide around. tap *Lock it* when the plan looks right. tap *Connect calendar* to subscribe Google, Apple, Android, or Outlook to a live feed.",
   ].join("\n");
 }
 
@@ -299,7 +299,7 @@ export function processTurn(
     const plan = buildDayPlan(next, ev.date);
     push(
       botText(
-        `locked. *${ev.title}* is on ${prettyDate(ev.date)} at ${formatClock(ev.start)}.\ni'll nudge you here ${next.settings.reminderLeadMinutes} min before.\n\ni *can't* write straight into Google/Apple/Android without you tapping — they don't let websites do that. tap a button and i'll hand it to your calendar app.`,
+        `locked. *${ev.title}* is on ${prettyDate(ev.date)} at ${formatClock(ev.start)}.\ni'll nudge you here ${next.settings.reminderLeadMinutes} min before.\n\n*Connect calendar* subscribes this device's calendar (Google, Apple, Android, Outlook) to your live Balance feed. Google (this event) is a one-shot add.`,
         {
           card: {
             type: "schedule",
@@ -464,12 +464,19 @@ export function processTurn(
     }
   } else if (parsed.intent === "calendar") {
     const ev = next.events[next.events.length - 1];
+    const connect =
+      "tap *Connect calendar* and i'll match this device: Apple Calendar on iPhone/Mac, Google Calendar on Android/Chrome, Outlook on Windows. that's a live subscribe — new locked events show up on the next refresh.\n\nbrowsers still can't silently write into the OS calendar. one tap from you is the rule.";
     if (!ev) {
-      push(botText("nothing locked yet. plan an event first, then i can hand it to your calendar."));
+      push(
+        botText(
+          `no events locked yet, but you can still subscribe the empty feed so later plans land automatically.\n\n${connect}`,
+          { buttons: [{ id: "connect", title: "Connect calendar", action: "connect-feed" }] },
+        ),
+      );
     } else {
       push(
         botText(
-          `*${ev.title}* · ${prettyDate(ev.date)} ${formatClock(ev.start)}\n\nwebsites aren't allowed to silently write into Google, Apple, or Android calendars. tap *Google Calendar* to open a pre-filled event, or *Apple / Android* to download an .ics file your phone calendar will import.`,
+          `*${ev.title}* · ${prettyDate(ev.date)} ${formatClock(ev.start)}\n\n${connect}`,
           { buttons: CALENDAR_BUTTONS, calendarEventId: ev.id },
         ),
       );

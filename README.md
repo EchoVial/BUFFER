@@ -1,6 +1,8 @@
 # Balance
 
-WhatsApp-style web chat for workaholics who still want a life. You text **Balance** the way you’d text a friend (`gym tmrw 7pm`, `i want 2 hrs of social every day`, `rundown`) and it plans events, stacks hierarchical to-dos, flags overlaps, and can hand locked events to Google Calendar or an Apple/Android `.ics` file.
+A website for work-life chat that actually lands on the calendar your OS already uses.
+
+Text **Balance** like a friend (`gym tmrw 7pm`, `i want 2 hrs of social every day`, `rundown`). Locked events publish to a private ICS feed. Google Calendar, Apple Calendar, Android (via Google), and Outlook subscribe to that feed — browsers are not allowed to write silently into those apps.
 
 ## Run locally
 
@@ -9,7 +11,28 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:43177](http://localhost:43177). The bot asks your name first. That name is your account.
+Open [http://localhost:43177](http://localhost:43177).
+
+- **Site + OS calendars:** `/`
+- **Chat:** `/chat` — first message is your name (that’s the account)
+- **Admin:** `/admin`
+
+## Connect a calendar
+
+1. Open chat and send your name.
+2. Tap **Connect calendar** (or say `connect calendar`), or use the same panel on the home page once you’re signed in.
+3. Pick the calendar for this device:
+
+   | OS / app | What happens |
+   | --- | --- |
+   | **Google / Android** | Opens Google Calendar with your live feed (`cid=`). You can also paste the HTTPS URL under Settings → Add calendar → From URL. |
+   | **iPhone, iPad, Mac** | Opens `webcal://…` so Calendar.app can subscribe. |
+   | **Windows / Outlook** | Opens Outlook on the web “add from web”. |
+   | **Any** | Copy the private ICS URL, or download a one-off `.ics` snapshot. |
+
+The feed is `/api/calendar/<secret-token>`. Treat it like a password: anyone with the URL can read your schedule. Calendar apps typically refresh every 15 minutes.
+
+A website still cannot inject events into Google/Apple/Android without that subscribe (or a one-shot template / file). That is an OS rule, not a missing feature.
 
 ## Deploy on Vercel
 
@@ -31,6 +54,8 @@ Optional, for chats that survive deploys and multiple serverless instances:
 - In the Vercel dashboard, add **KV** (or Upstash Redis) to the project.
 - That sets `KV_REST_API_URL` and `KV_REST_API_TOKEN` (or the `UPSTASH_REDIS_REST_*` pair). Redeploy.
 
+Calendar subscribe URLs use the public origin of the deployment. On Vercel that is automatic from the request host.
+
 CLI alternative from this folder:
 
 ```bash
@@ -41,12 +66,13 @@ Log in, link a project, then `npx vercel --prod`. Set `ADMIN_PASSWORD` with `npx
 
 ### After deploy
 
-- Chat: `https://your-project.vercel.app`
+- Site: `https://your-project.vercel.app`
+- Chat: `https://your-project.vercel.app/chat`
 - Admin: `https://your-project.vercel.app/admin`
 
 ## Admin access
 
-1. Open **`/admin`** (there is also an **Admin** link in the chat header).
+1. Open **`/admin`** (there is also an **Admin** link in the site header and chat).
 2. Enter the password:
    - **Local:** `balance123` unless you set `ADMIN_PASSWORD` in `.env.local`.
    - **Vercel:** the value you put in **Project → Settings → Environment Variables → `ADMIN_PASSWORD`**. Production, Preview, and Development should all have it if you want admin on every URL.
@@ -63,11 +89,11 @@ If the password is wrong, or `ADMIN_PASSWORD` is missing on Vercel, the API retu
 ## Persistence
 
 - **Local:** `data/store.json` plus the browser cache.
-- **Vercel without KV:** in-memory on the current instance, plus each person’s browser cache. Fine for a demo; deploys can clear server-side users.
-- **Vercel with KV:** the same store is written to Redis, so admin-created users and chats last across deploys.
+- **Vercel without KV:** in-memory on the current instance, plus each person’s browser cache. Fine for a demo; deploys can clear server-side users (and their calendar tokens).
+- **Vercel with KV:** the same store is written to Redis, so admin-created users, chats, and calendar feeds last across deploys.
 
 ## What it does
 
 - Plan events in everyday slang, with WhatsApp-style reply buttons and option lists
 - Overlap warnings, daily rundown, to-do hierarchy, social-hour rules
-- Calendar export: Google Calendar link or Apple/Android `.ics` (phones do not allow silent writes)
+- Live ICS subscribe for Google, Apple, Android, and Outlook, plus one-shot Google template / `.ics` download

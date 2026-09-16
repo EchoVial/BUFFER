@@ -1,4 +1,4 @@
-import { CalendarEvent, TodoItem } from "./types";
+import { CalendarEvent, TodoItem, UserRecord } from "./types";
 import { pad, parseHM } from "./time";
 
 function icsEscape(value: string): string {
@@ -89,4 +89,115 @@ export function downloadIcs(filename: string, ics: string) {
   a.click();
   a.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function utcStamp(d = new Date()): string {
+  return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+}
+
+export function userFeedIcs(user: Pick<UserRecord, "name" | "settings" | "events" | "todos">): string {
+  const tz = user.settings.timezone || "UTC";
+  const dtstamp = utcStamp();
+  const vevents = user.events.map((event) =>
+    [
+      "BEGIN:VEVENT",
+      `UID:${event.id}@balance.chat`,
+      `DTSTAMP:${dtstamp}`,
+      `DTSTART;TZID=${tz}:${stamp(event.date, event.start)}`,
+      `DTEND;TZID=${tz}:${endStamp(event.date, event.start, event.durationMinutes)}`,
+      `SUMMARY:${icsEscape(event.title)}`,
+      `DESCRIPTION:${icsEscape(`Balance · ${event.kind}${event.notes ? ` · ${event.notes}` : ""}`)}`,
+      `CATEGORIES:${icsEscape(event.kind)}`,
+      "END:VEVENT",
+    ].join("\r\n"),
+  );
+  const vtodos = user.todos
+    .filter((t) => !t.done)
+    .map((t) => {
+      const due = t.dueDate ? `DUE;VALUE=DATE:${t.dueDate.replace(/-/g, "")}` : null;
+      return [
+        "BEGIN:VTODO",
+        `UID:${t.id}@balance.chat`,
+        `DTSTAMP:${dtstamp}`,
+        `SUMMARY:${icsEscape(t.title)}`,
+        `PRIORITY:${t.priority === "p0" ? 1 : t.priority === "p1" ? 3 : 5}`,
+        due,
+        `STATUS:NEEDS-ACTION`,
+        `DESCRIPTION:${icsEscape(`${t.kind} · ${tz}`)}`,
+        "END:VTODO",
+      ]
+        .filter(Boolean)
+        .join("\r\n");
+    });
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Balance//Work Life Chat//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    `X-WR-CALNAME:${icsEscape(`Balance — ${user.name}`)}`,
+    `X-WR-TIMEZONE:${tz}`,
+    "X-WR-CALDESC:Live schedule from Balance chat. Refresh to pick up locked events.",
+    "REFRESH-INTERVAL;VALUE=DURATION:PT15M",
+    "X-PUBLISHED-TTL:PT15M",
+    ...vevents,
+    ...vtodos,
+    "END:VCALENDAR",
+    "",
+  ].join("\r\n");
+}
+
+export function originFromRequest(req: { headers: Headers; nextUrl?: URL }): string {
+  const proto = req.headers.get("x-forwarded-proto");
+  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
+  if (host) return `${proto || (req.nextUrl?.protocol.replace(":", "") ?? "https")}://${host}`;
+  const env =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+    process.env.VERCEL_URL;
+  if (env) return env.startsWith("http") ? env : `https://${env}`;
+  return "http://127.0.0.1:43177";
+}
+
+export function icsHttpUrl(origin: string, token: string): string {
+  return `${origin.replace(/\/$/, "")}/api/calendar/${encodeURIComponent(token)}`;
+}
+
+export function icsWebcalUrl(origin: string, token: string): string {
+  return icsHttpUrl(origin, token).replace(/^https?:/i, "webcal:");
+}
+
+export function googleSubscribeUrl(origin: string, token: string): string {
+  return `https://calendar.google.com/calendar/render?cid=${encodeURIComponent(icsWebcalUrl(origin, token))}`;
+}
+
+export function outlookSubscribeUrl(origin: string, token: string, calendarName: string): string {
+  const url = icsHttpUrl(origin, token);
+  return `https://outlook.live.com/calendar/0/addfromweb?url=${encodeURIComponent(url)}&name=${encodeURIComponent(calendarName)}`;
+}
+
+export type CalendarPlatform = "ios" | "mac" | "android" | "windows" | "other";
+
+export function detectCalendarPlatform(ua = ""): CalendarPlatform {
+  const s = ua.toLowerCase();
+  if (/iphone|ipad|ipod/.test(s)) return "ios";
+  if (/macintosh|mac os x/.test(s) && !/mobile/.test(s)) return "mac";
+  if (/android/.test(s)) return "android";
+  if (/windows/.test(s)) return "windows";
+  return "other";
+}
+
+export function platformLabel(platform: CalendarPlatform): string {
+  switch (platform) {
+    case "ios":
+      return "iPhone / iPad";
+    case "mac":
+      return "Mac";
+    case "android":
+      return "Android";
+    case "windows":
+      return "Windows";
+    default:
+      return "this device";
+  }
 }
