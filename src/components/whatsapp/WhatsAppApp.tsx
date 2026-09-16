@@ -579,7 +579,13 @@ export function WhatsAppApp() {
                       key={e}
                       type="button"
                       className="text-xl"
-                      onClick={() => setDraft((d) => d + e)}
+                      onClick={() => {
+                        if (composer.current) {
+                          composer.current.value += e;
+                          setDraft(composer.current.value);
+                          composer.current.focus();
+                        }
+                      }}
                     >
                       {e}
                     </button>
@@ -612,7 +618,11 @@ export function WhatsAppApp() {
                       className="block w-full px-4 py-2 text-left hover:bg-white/5"
                       onClick={() => {
                         if (fill === "rundown") void send("rundown");
-                        else setDraft(fill);
+                        else if (composer.current) {
+                          composer.current.value = fill;
+                          setDraft(fill);
+                          composer.current.focus();
+                        }
                         setPlusOpen(false);
                       }}
                     >
