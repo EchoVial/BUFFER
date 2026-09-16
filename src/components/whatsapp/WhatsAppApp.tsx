@@ -53,7 +53,7 @@ export function WhatsAppApp() {
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
-  const composer = useRef<HTMLTextAreaElement>(null);
+  const composer = useRef<HTMLInputElement>(null);
 
   const persist = useCallback((u: UserRecord) => {
     localStorage.setItem(LS, JSON.stringify(u));
@@ -194,12 +194,24 @@ export function WhatsAppApp() {
     }
   }
 
-  async function send(text: string) {
-    const trimmed = text.trim();
-    if (!trimmed || sending) return;
+  const sendingRef = useRef(false);
+
+  function composerValue() {
+    return (composer.current?.value ?? draft ?? search ?? "").trim();
+  }
+
+  async function send(text?: string) {
+    const trimmed = (text ?? composerValue()).trim();
+    if (!trimmed) {
+      composer.current?.focus();
+      return;
+    }
+    if (sendingRef.current) return;
+    sendingRef.current = true;
     setSending(true);
     setDraft("");
     setSearch("");
+    if (composer.current) composer.current.value = "";
     setEmojiOpen(false);
     setPlusOpen(false);
     setError(null);
@@ -247,6 +259,7 @@ export function WhatsAppApp() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't send");
     } finally {
+      sendingRef.current = false;
       setTyping(false);
       setSending(false);
       window.setTimeout(() => composer.current?.focus(), 50);
@@ -255,7 +268,7 @@ export function WhatsAppApp() {
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    void send(draft);
+    void send();
   }
 
   async function signOut() {
@@ -546,7 +559,7 @@ export function WhatsAppApp() {
 
           <form
             onSubmit={onSubmit}
-            className="relative flex items-end gap-2 bg-[#202c33] px-2 py-2 md:px-4"
+            className="relative z-30 flex items-end gap-2 bg-[#202c33] px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-4"
           >
             <div className="relative">
               <button
@@ -610,28 +623,37 @@ export function WhatsAppApp() {
               )}
             </div>
             <Paperclip className="mb-2 hidden size-5 text-[#8696a0] md:block" />
-            <textarea
+            <input
               ref={composer}
-              rows={1}
-              value={draft}
+              type="text"
+              name="message"
+              autoComplete="off"
+              enterKeyHint="send"
               autoFocus
+              defaultValue=""
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
+                if (e.key === "Enter") {
                   e.preventDefault();
-                  void send(draft);
+                  void send();
                 }
               }}
               placeholder={awaitingName ? "Type your name, then send" : "Type a message"}
-              className="max-h-32 min-h-[42px] flex-1 resize-none rounded-lg bg-[#2a3942] px-3 py-2.5 text-[15px] outline-none placeholder:text-[#8696a0]"
+              className="h-11 min-h-[44px] flex-1 rounded-lg bg-[#2a3942] px-3 text-[15px] outline-none placeholder:text-[#8696a0]"
             />
             <button
-              type="submit"
-              disabled={sending || !draft.trim()}
-              className="mb-0.5 flex h-10 w-10 items-center justify-center rounded-full bg-[#00a884] text-[#111b21] disabled:opacity-40"
+              type="button"
               aria-label="Send"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                void send();
+              }}
+              className="relative z-40 mb-0.5 flex size-12 shrink-0 touch-manipulation items-center justify-center rounded-full bg-[#00a884] text-[#111b21]"
+              aria-busy={sending}
             >
-              <Send className="size-4" />
+              <Send className="pointer-events-none size-5" />
             </button>
           </form>
         </section>
