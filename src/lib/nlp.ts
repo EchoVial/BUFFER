@@ -324,8 +324,8 @@ function stripTitle(text: string): string {
     .replace(/\b(today|tomorrow|tonight|this (?:morning|afternoon|evening|weekend)|next week)\b/g, " ")
     .replace(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\b/g, " ")
     .replace(/\b(at\s+)?\d{1,2}(?::\d{2})?\s*(am|pm)?\b/g, " ")
-    .replace(/\bfor\s+\d+(?:\.\d+)?\s*(hours|hour|minutes|minute)\b/g, " ")
-    .replace(/\b\d+(?:\.\d+)?\s*(hours|hour|minutes|minute)\b/g, " ")
+    .replace(/\bfor\s+\d+(?:\.\d+)?\s*(hours|hour|minutes|minute|hrs|hr|h|m)\b/g, " ")
+    .replace(/\b\d+(?:\.\d+)?\s*(hours|hour|minutes|minute|hrs|hr|h|m)\b/g, " ")
     .replace(/\b(p0|p1|p2|p3|urgent|high priority|low priority)\b/g, " ")
     .replace(/\b(work|social|personal|health)\b/g, " ")
     .replace(/\b(meeting|call|event|todo|task|reminder)\b/g, " ")
@@ -425,6 +425,10 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
     else title = raw.trim();
   }
   title = title.replace(/^(to|for|with)\s+/i, "");
+  title = title.replace(/\bunder\s+[^:]+:\s*/i, "");
+  title = title.replace(/\b\d+(?:\.\d+)?\s*(?:hours|hour|minutes|minute|hrs|hr|mins|min|h|m)\b/gi, "");
+  title = title.replace(/\s+/g, " ").trim();
+  title = title.replace(/(\b(for|to|with|at|on)\s*)+$/i, "").trim();
   title = title.charAt(0).toUpperCase() + title.slice(1);
 
   const parent = normalized.match(/\bunder\s+(.+?)(?::|,| add | - |$)/);
