@@ -8,7 +8,12 @@ export async function GET(req: NextRequest) {
   const id = req.cookies.get(COOKIE)?.value;
   if (!id) return NextResponse.json({ user: null, settings: getAppSettings() });
   const user = getUserById(id);
-  return NextResponse.json({ user: user ?? null, settings: getAppSettings() });
+  if (!user) {
+    const res = NextResponse.json({ user: null, settings: getAppSettings() });
+    res.cookies.set(COOKIE, "", { path: "/", maxAge: 0 });
+    return res;
+  }
+  return NextResponse.json({ user, settings: getAppSettings() });
 }
 
 export async function POST(req: NextRequest) {

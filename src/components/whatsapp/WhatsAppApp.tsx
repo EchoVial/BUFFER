@@ -42,7 +42,7 @@ export function WhatsAppApp() {
   const [draft, setDraft] = useState("");
   const [typing, setTyping] = useState(false);
   const [tab, setTab] = useState<Tab>("chats");
-  const [mobileChat, setMobileChat] = useState(false);
+  const [mobileChat, setMobileChat] = useState(true);
   const [search, setSearch] = useState("");
   const [msgSearch, setMsgSearch] = useState("");
   const [showSearch, setShowSearch] = useState(false);
@@ -51,7 +51,9 @@ export function WhatsAppApp() {
   const [infoOpen, setInfoOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
+  const composer = useRef<HTMLTextAreaElement>(null);
 
   const persist = useCallback((u: UserRecord) => {
     localStorage.setItem(LS, JSON.stringify(u));
@@ -60,53 +62,57 @@ export function WhatsAppApp() {
   useEffect(() => {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     (async () => {
-      const cached = localStorage.getItem(LS);
-      const res = await fetch("/api/session");
-      const data = await res.json();
-      setSettings(data.settings);
-      if (data.user) {
-        let u = data.user as UserRecord;
-        if (cached) {
+      try {
+        const cached = localStorage.getItem(LS);
+        const res = await fetch("/api/session");
+        const data = await res.json();
+        setSettings(data.settings);
+        if (data.user) {
+          let u = data.user as UserRecord;
+          if (cached) {
+            try {
+              const c = JSON.parse(cached) as UserRecord;
+              if (c.id === u.id && new Date(c.updatedAt) > new Date(u.updatedAt)) {
+                u = c;
+                await fetch("/api/chat", {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ user: c }),
+                });
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+          setUser(u);
+          setAwaitingName(false);
+          setMobileChat(true);
+          persist(u);
+        } else if (cached) {
           try {
             const c = JSON.parse(cached) as UserRecord;
-            if (c.id === u.id && new Date(c.updatedAt) > new Date(u.updatedAt)) {
-              u = c;
-              await fetch("/api/chat", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ user: c }),
-              });
+            const r = await fetch("/api/session", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: c.name, timezone: tz }),
+            });
+            const d = await r.json();
+            if (d.user) {
+              setUser(d.user);
+              setAwaitingName(false);
+              setMobileChat(true);
+              persist(d.user);
+              setSettings(d.settings);
+            } else {
+              startIntro();
             }
           } catch {
-            /* ignore */
-          }
-        }
-        setUser(u);
-        setAwaitingName(false);
-        setMobileChat(true);
-        persist(u);
-      } else if (cached) {
-        try {
-          const c = JSON.parse(cached) as UserRecord;
-          const r = await fetch("/api/session", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: c.name, timezone: tz }),
-          });
-          const d = await r.json();
-          if (d.user) {
-            setUser(d.user);
-            setAwaitingName(false);
-            setMobileChat(true);
-            persist(d.user);
-            setSettings(d.settings);
-          } else {
             startIntro();
           }
-        } catch {
+        } else {
           startIntro();
         }
-      } else {
+      } catch {
         startIntro();
       }
     })();
@@ -114,6 +120,7 @@ export function WhatsAppApp() {
 
   function startIntro() {
     setAwaitingName(true);
+    setMobileChat(true);
     setBootMsgs([
       {
         id: "boot-1",
@@ -123,6 +130,7 @@ export function WhatsAppApp() {
         status: "delivered",
       },
     ]);
+    window.setTimeout(() => composer.current?.focus(), 50);
   }
 
   useEffect(() => {
@@ -152,71 +160,81 @@ export function WhatsAppApp() {
   async function submitName(name: string) {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     setTyping(true);
-    const res = await fetch("/api/session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, timezone: tz }),
-    });
-    const data = await res.json();
-    setTyping(false);
-    if (!res.ok) {
-      setError(data.error || "Couldn't sign you in.");
-      setBootMsgs((m) => [
-        ...m,
-        {
-          id: `boot-err-${Date.now()}`,
-          role: "bot",
-          text: data.error || "that name didn't work. try again?",
-          createdAt: new Date().toISOString(),
-          status: "delivered",
-        },
-      ]);
-      return;
+    try {
+      const res = await fetch("/api/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, timezone: tz }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Couldn't sign you in.");
+        setBootMsgs((m) => [
+          ...m,
+          {
+            id: `boot-err-${Date.now()}`,
+            role: "bot",
+            text: data.error || "that name didn't work. try again?",
+            createdAt: new Date().toISOString(),
+            status: "delivered",
+          },
+        ]);
+        return;
+      }
+      setSettings(data.settings);
+      setUser(data.user);
+      setAwaitingName(false);
+      setMobileChat(true);
+      persist(data.user);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't sign you in.");
+    } finally {
+      setTyping(false);
+      window.setTimeout(() => composer.current?.focus(), 50);
     }
-    setSettings(data.settings);
-    setUser(data.user);
-    setAwaitingName(false);
-    persist(data.user);
   }
 
   async function send(text: string) {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || sending) return;
+    setSending(true);
     setDraft("");
+    setSearch("");
     setEmojiOpen(false);
     setPlusOpen(false);
     setError(null);
-    if (awaitingName) {
-      setBootMsgs((m) => [
-        ...m,
-        {
-          id: `boot-u-${Date.now()}`,
-          role: "user",
-          text: trimmed,
-          createdAt: new Date().toISOString(),
-          status: "read",
-        },
-      ]);
-      await submitName(trimmed);
-      return;
-    }
-    if (!user) return;
-    const optimistic: UserRecord = {
-      ...user,
-      messages: [
-        ...user.messages,
-        {
-          id: `tmp-${Date.now()}`,
-          role: "user",
-          text: trimmed,
-          createdAt: new Date().toISOString(),
-          status: "sent",
-        },
-      ],
-    };
-    setUser(optimistic);
-    setTyping(true);
+    setMobileChat(true);
     try {
+      if (awaitingName) {
+        setBootMsgs((m) => [
+          ...m,
+          {
+            id: `boot-u-${Date.now()}`,
+            role: "user",
+            text: trimmed,
+            createdAt: new Date().toISOString(),
+            status: "read",
+          },
+        ]);
+        await submitName(trimmed);
+        return;
+      }
+      if (!user) return;
+      const optimistic: UserRecord = {
+        ...user,
+        messages: [
+          ...user.messages,
+          {
+            id: `tmp-${Date.now()}`,
+            role: "user",
+            text: trimmed,
+            createdAt: new Date().toISOString(),
+            status: "sent",
+          },
+        ],
+      };
+      setUser(optimistic);
+      setTyping(true);
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -230,6 +248,8 @@ export function WhatsAppApp() {
       setError(e instanceof Error ? e.message : "Couldn't send");
     } finally {
       setTyping(false);
+      setSending(false);
+      window.setTimeout(() => composer.current?.focus(), 50);
     }
   }
 
@@ -243,7 +263,6 @@ export function WhatsAppApp() {
     localStorage.removeItem(LS);
     setUser(null);
     startIntro();
-    setMobileChat(false);
     setMenuOpen(false);
   }
 
@@ -318,17 +337,24 @@ export function WhatsAppApp() {
                   <input
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search or start a new chat"
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      e.preventDefault();
+                      if (awaitingName && search.trim()) {
+                        void send(search);
+                      } else {
+                        setMobileChat(true);
+                      }
+                    }}
+                    placeholder={awaitingName ? "Type your name to start…" : "Search chats"}
                     className="w-full bg-transparent text-[14px] outline-none placeholder:text-[#8696a0]"
                   />
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => setMobileChat(true)}
-                className={cn(
-                  "flex w-full items-center gap-3 px-3 py-3 text-left hover:bg-white/5",
-                  search && !botName.toLowerCase().includes(search.toLowerCase()) && "hidden",
-                )}
+                className="flex w-full items-center gap-3 px-3 py-3 text-left hover:bg-white/5"
               >
                 <div className="relative">
                   <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#00a884] text-lg font-bold text-[#111b21]">
@@ -585,8 +611,10 @@ export function WhatsAppApp() {
             </div>
             <Paperclip className="mb-2 hidden size-5 text-[#8696a0] md:block" />
             <textarea
+              ref={composer}
               rows={1}
               value={draft}
+              autoFocus
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
@@ -594,12 +622,13 @@ export function WhatsAppApp() {
                   void send(draft);
                 }
               }}
-              placeholder="Type a message"
+              placeholder={awaitingName ? "Type your name, then send" : "Type a message"}
               className="max-h-32 min-h-[42px] flex-1 resize-none rounded-lg bg-[#2a3942] px-3 py-2.5 text-[15px] outline-none placeholder:text-[#8696a0]"
             />
             <button
               type="submit"
-              className="mb-0.5 flex h-10 w-10 items-center justify-center rounded-full bg-[#00a884] text-[#111b21]"
+              disabled={sending || !draft.trim()}
+              className="mb-0.5 flex h-10 w-10 items-center justify-center rounded-full bg-[#00a884] text-[#111b21] disabled:opacity-40"
               aria-label="Send"
             >
               <Send className="size-4" />

@@ -44,7 +44,7 @@ export function MessageCards({ message }: { message: ChatMessage }) {
   if (card.type === "todos") {
     return (
       <Box title="To-do hierarchy">
-        <pre className="whitespace-pre-wrap font-sans text-[12.5px] leading-5 text-[#e9edef]">
+        <pre className="whitespace-pre-wrap font-[inherit] text-[12.5px] leading-5 text-[#e9edef]">
           {card.lines.join("\n")}
         </pre>
       </Box>
@@ -84,7 +84,7 @@ function ScheduleCard({
       <Box title={`Schedule · ${date}`}>
         {lines.length ? (
           lines.map((l) => (
-            <p key={l} className="font-mono text-[11.5px] leading-5 text-[#e9edef]">
+            <p key={l} className="text-[12px] leading-5 tracking-tight text-[#e9edef]">
               {l}
             </p>
           ))
@@ -115,14 +115,14 @@ function SplitSchedule({ before, after }: { before: string[]; after: string[] })
     <div className="grid gap-2 sm:grid-cols-2">
       <Box title="Before">
         {before.map((l) => (
-          <p key={l} className="font-mono text-[11px] leading-4 text-[#8696a0]">
+          <p key={l} className="text-[12px] leading-4 tracking-tight text-[#8696a0]">
             {l}
           </p>
         ))}
       </Box>
       <Box title="Possible after">
         {after.map((l) => (
-          <p key={l} className="font-mono text-[11px] leading-4 text-[#e9edef]">
+          <p key={l} className="text-[12px] leading-4 tracking-tight text-[#e9edef]">
             {l}
           </p>
         ))}
