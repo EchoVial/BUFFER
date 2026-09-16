@@ -43,6 +43,31 @@ export interface TodoItem {
   createdAt: string;
 }
 
+export interface ReplyButton {
+  id: string;
+  title: string;
+  payload?: string;
+  action?: "reply" | "google-cal" | "ics";
+}
+
+export interface ListRow {
+  id: string;
+  title: string;
+  description?: string;
+  payload: string;
+}
+
+export interface ListSection {
+  title: string;
+  rows: ListRow[];
+}
+
+export interface InteractiveList {
+  button: string;
+  footer?: string;
+  sections: ListSection[];
+}
+
 export interface ChatMessage {
   id: string;
   role: MessageRole;
@@ -51,6 +76,9 @@ export interface ChatMessage {
   status: MessageStatus;
   card?: MessageCard;
   replyToId?: string;
+  buttons?: ReplyButton[];
+  list?: InteractiveList;
+  calendarEventId?: string;
 }
 
 export type MessageCard =

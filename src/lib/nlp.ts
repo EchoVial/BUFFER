@@ -15,6 +15,7 @@ export type Intent =
   | "overlaps"
   | "status"
   | "chitchat"
+  | "calendar"
   | "unknown";
 
 export interface ParsedMessage {
@@ -404,6 +405,12 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
     intent = "greet";
   } else if (/\b(help|what can you|how do i|commands)\b/.test(normalized)) {
     intent = "help";
+  } else if (
+    /\b(add to calendar|google calendar|apple calendar|android calendar|put it on my calendar|export to calendar)\b/.test(
+      normalized,
+    )
+  ) {
+    intent = "calendar";
   } else if (/\b(how am i doing|balance|burnout|overworked)\b/.test(normalized)) {
     intent = "status";
   } else if (

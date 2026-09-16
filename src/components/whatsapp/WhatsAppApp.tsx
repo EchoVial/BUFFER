@@ -23,11 +23,13 @@ import {
   Video,
   X,
 } from "lucide-react";
-import { AppSettings, ChatMessage, UserRecord } from "@/lib/types";
+import { AppSettings, ChatMessage, ReplyButton, UserRecord } from "@/lib/types";
 import { formatMessageTime } from "@/lib/time";
 import { formatMessageDay } from "@/lib/day-label";
+import { downloadIcs, eventToIcs, googleCalendarUrl } from "@/lib/calendar";
 import { MessageCards } from "./cards";
 import { WhatsAppText } from "./wa-text";
+import { ListTrigger, ReplyButtons, WhatsAppListSheet } from "./interactive";
 import { cn } from "@/lib/utils";
 
 const LS = "balance.user.cache";
@@ -51,6 +53,7 @@ export function WhatsAppApp() {
   const [plusOpen, setPlusOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [listFor, setListFor] = useState<ChatMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
@@ -58,6 +61,21 @@ export function WhatsAppApp() {
 
   const persist = useCallback((u: UserRecord) => {
     localStorage.setItem(LS, JSON.stringify(u));
+  }, []);
+
+  const startIntro = useCallback(() => {
+    setAwaitingName(true);
+    setMobileChat(true);
+    setBootMsgs([
+      {
+        id: "boot-1",
+        role: "bot",
+        text: "hey — i'm Balance, your work-life wingman in a WhatsApp skin.\n\nbefore i remember anything: what should i call you? first name is perfect.",
+        createdAt: new Date().toISOString(),
+        status: "delivered",
+      },
+    ]);
+    window.setTimeout(() => composer.current?.focus(), 50);
   }, []);
 
   useEffect(() => {
@@ -117,22 +135,7 @@ export function WhatsAppApp() {
         startIntro();
       }
     })();
-  }, [persist]);
-
-  function startIntro() {
-    setAwaitingName(true);
-    setMobileChat(true);
-    setBootMsgs([
-      {
-        id: "boot-1",
-        role: "bot",
-        text: "hey — i'm Balance, your work-life wingman in a WhatsApp skin.\n\nbefore i remember anything: what should i call you? first name is perfect.",
-        createdAt: new Date().toISOString(),
-        status: "delivered",
-      },
-    ]);
-    window.setTimeout(() => composer.current?.focus(), 50);
-  }
+  }, [persist, startIntro]);
 
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
@@ -238,7 +241,7 @@ export function WhatsAppApp() {
         messages: [
           ...user.messages,
           {
-            id: `tmp-${Date.now()}`,
+            id: `tmp_${crypto.randomUUID()}`,
             role: "user",
             text: trimmed,
             createdAt: new Date().toISOString(),
@@ -295,11 +298,37 @@ export function WhatsAppApp() {
     return out;
   }, [messages, user?.settings.timezone, msgSearch]);
 
-  const chips = awaitingName
-    ? []
-    : last?.card?.type === "proposal"
-      ? ["lock it", "nah, cancel", "make it 30m later"]
-      : ["rundown", "my todos", "i want 2 hrs of social every day", "help"];
+  const lastBot = [...messages].reverse().find((m) => m.role === "bot");
+  const chips =
+    awaitingName || lastBot?.buttons?.length || lastBot?.list
+      ? []
+      : last?.card?.type === "proposal"
+        ? ["lock it", "nah, cancel", "make it 30m later"]
+        : ["rundown", "my todos", "add to calendar", "help"];
+
+  function handleReplyButton(message: ChatMessage, button: ReplyButton) {
+    const tz = user?.settings.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const event =
+      user?.events.find((e) => e.id === message.calendarEventId) ||
+      user?.events[user.events.length - 1];
+    if (button.action === "google-cal") {
+      if (!event) {
+        void send("add to calendar");
+        return;
+      }
+      window.open(googleCalendarUrl(event, tz), "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (button.action === "ics") {
+      if (!event) {
+        void send("add to calendar");
+        return;
+      }
+      downloadIcs(event.title, eventToIcs(event, tz));
+      return;
+    }
+    void send(button.payload || button.title);
+  }
 
   return (
     <div className="wa-app flex h-[100dvh] flex-col bg-[#0b141a] text-[#e9edef]">
@@ -526,7 +555,12 @@ export function WhatsAppApp() {
                   </span>
                 </div>
                 {g.msgs.map((m) => (
-                  <Bubble key={m.id} message={m} />
+                  <Bubble
+                    key={m.id}
+                    message={m}
+                    onButton={(button) => handleReplyButton(m, button)}
+                    onList={() => setListFor(m)}
+                  />
                 ))}
               </div>
             ))}
@@ -611,6 +645,7 @@ export function WhatsAppApp() {
                     ["📅 New event", "plan "],
                     ["✅ New to-do", "remind me to "],
                     ["📋 Today's rundown", "rundown"],
+                    ["📆 Add to calendar", "add to calendar"],
                     ["⚖️ My rules", "i want "],
                   ].map(([label, fill]) => (
                     <button
@@ -715,35 +750,67 @@ export function WhatsAppApp() {
           </div>
         </div>
       )}
+      {listFor?.list && (
+        <WhatsAppListSheet
+          message={listFor}
+          onClose={() => setListFor(null)}
+          onPick={(row) => {
+            setListFor(null);
+            if (row.payload.endsWith(" ")) {
+              if (composer.current) {
+                composer.current.value = row.payload;
+                setDraft(row.payload);
+                composer.current.focus();
+              }
+            } else {
+              void send(row.payload);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function Bubble({ message }: { message: ChatMessage }) {
+function Bubble({
+  message,
+  onButton,
+  onList,
+}: {
+  message: ChatMessage;
+  onButton: (button: ReplyButton) => void;
+  onList: () => void;
+}) {
   const mine = message.role === "user";
   return (
-    <div className={cn("mb-1 flex", mine ? "justify-end" : "justify-start")}>
+    <div className={cn("mb-1.5 flex", mine ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-[min(85%,32rem)] rounded-lg px-2 pt-1.5 pb-1 shadow",
-          mine
-            ? "rounded-tr-none bg-[#005c4b]"
-            : "rounded-tl-none bg-[#202c33]",
+          "max-w-[min(85%,32rem)] overflow-hidden rounded-lg shadow",
+          mine ? "rounded-tr-none bg-[#005c4b]" : "rounded-tl-none bg-[#202c33]",
         )}
       >
-        <div className="whitespace-pre-wrap break-words text-[14.2px] leading-[19px] text-[#e9edef] [overflow-wrap:anywhere]">
-          <WhatsAppText text={message.text} />
+        <div className="px-2 pt-1.5 pb-1">
+          <div className="whitespace-pre-wrap break-words text-[14.2px] leading-[19px] text-[#e9edef] [overflow-wrap:anywhere]">
+            <WhatsAppText text={message.text} />
+          </div>
+          <MessageCards message={message} />
+          <p className="mt-0.5 flex items-center justify-end gap-1 text-[11px] text-[#ffffff99]">
+            {formatMessageTime(message.createdAt)}
+            {mine &&
+              (message.status === "read" ? (
+                <CheckCheck className="size-3.5 text-[#53bdeb]" />
+              ) : (
+                <Check className="size-3.5" />
+              ))}
+          </p>
         </div>
-        <MessageCards message={message} />
-        <p className="mt-0.5 flex items-center justify-end gap-1 text-[11px] text-[#ffffff99]">
-          {formatMessageTime(message.createdAt)}
-          {mine &&
-            (message.status === "read" ? (
-              <CheckCheck className="size-3.5 text-[#53bdeb]" />
-            ) : (
-              <Check className="size-3.5" />
-            ))}
-        </p>
+        {!mine && message.buttons?.length ? (
+          <ReplyButtons buttons={message.buttons} onPress={onButton} />
+        ) : null}
+        {!mine && message.list ? (
+          <ListTrigger label={message.list.button} onPress={onList} />
+        ) : null}
       </div>
     </div>
   );

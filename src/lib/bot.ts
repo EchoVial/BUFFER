@@ -2,24 +2,122 @@ import {
   CalendarEvent,
   ChatMessage,
   ConversationDraft,
+  InteractiveList,
   MessageCard,
+  ReplyButton,
   TodoItem,
   UserRecord,
 } from "./types";
 import { uid } from "./ids";
 import { parseMessage } from "./nlp";
 import { buildDayPlan, planLines, proposeEvent, statsLine } from "./scheduler";
-import { dateISO, durationLabel, formatClock, nowInZone, prettyDate } from "./time";
+import {
+  dateISO,
+  durationLabel,
+  formatClock,
+  hmToMinutes,
+  minutesToHM,
+  nowInZone,
+  prettyDate,
+} from "./time";
 
-function botText(text: string, card?: MessageCard): ChatMessage {
+type BotExtra = {
+  card?: MessageCard;
+  buttons?: ReplyButton[];
+  list?: InteractiveList;
+  calendarEventId?: string;
+};
+
+const CARD_TYPES = new Set(["schedule", "proposal", "todos", "overlaps", "debug"]);
+
+function botText(text: string, extra?: MessageCard | BotExtra): ChatMessage {
+  const opts: BotExtra =
+    extra && "type" in extra && CARD_TYPES.has(String((extra as MessageCard).type))
+      ? { card: extra as MessageCard }
+      : ((extra as BotExtra) ?? {});
   return {
     id: uid("msg"),
     role: "bot",
     text,
     createdAt: new Date().toISOString(),
     status: "delivered",
-    card,
+    ...opts,
   };
+}
+
+const PROPOSAL_BUTTONS: ReplyButton[] = [
+  { id: "lock", title: "Lock it", payload: "lock it" },
+  { id: "later", title: "+30 min", payload: "make it 30m later" },
+  { id: "cancel", title: "Cancel", payload: "nah, cancel" },
+];
+
+const CALENDAR_BUTTONS: ReplyButton[] = [
+  { id: "gcal", title: "Google Calendar", action: "google-cal" },
+  { id: "ics", title: "Apple / Android", action: "ics" },
+  { id: "rundown", title: "Rundown", payload: "rundown" },
+];
+
+const KIND_BUTTONS: ReplyButton[] = [
+  { id: "work", title: "Work", payload: "it's work" },
+  { id: "social", title: "Social", payload: "it's social" },
+  { id: "personal", title: "Personal", payload: "it's personal" },
+];
+
+const START_LIST: InteractiveList = {
+  button: "See options",
+  footer: "or just text me like a friend",
+  sections: [
+    {
+      title: "Plan",
+      rows: [
+        {
+          id: "rundown",
+          title: "Today's rundown",
+          description: "Hour by hour, what moved",
+          payload: "rundown",
+        },
+        {
+          id: "event",
+          title: "Plan an event",
+          description: "Meeting, gym, dinner…",
+          payload: "i want to plan an event",
+        },
+        {
+          id: "todo",
+          title: "Add a to-do",
+          description: "Priority stack",
+          payload: "remind me to ",
+        },
+      ],
+    },
+    {
+      title: "Balance",
+      rows: [
+        {
+          id: "social",
+          title: "Set social hours",
+          description: "Protect time off work",
+          payload: "i want 2 hrs of social every day",
+        },
+        {
+          id: "cal",
+          title: "Add to my calendar",
+          description: "Google, Apple, or Android",
+          payload: "add to calendar",
+        },
+        {
+          id: "help",
+          title: "How this works",
+          description: "Examples of what to text",
+          payload: "help",
+        },
+      ],
+    },
+  ],
+};
+
+function withProposal(text: string, card: MessageCard): ChatMessage {
+  return botText(text, { card, buttons: PROPOSAL_BUTTONS });
 }
 
 function userText(text: string): ChatMessage {
@@ -35,7 +133,8 @@ function userText(text: string): ChatMessage {
 function greeting(name: string): ChatMessage[] {
   return [
     botText(
-      `hey ${name.split(" ")[0]} 👋 i'm *Balance*. think of me as the friend who actually remembers your calendar *and* tells you to leave the laptop.\n\ntext me like you text anyone — gym tmrw 7pm, i want 2 hrs of social every day, *rundown*, remind me to send the deck p0.\n\nwhat's one thing on your plate today?`,
+      `hey ${name.split(" ")[0]} 👋 i'm *Balance*. think of me as the friend who actually remembers your calendar *and* tells you to leave the laptop.\n\ntext me like you text anyone — gym tmrw 7pm, i want 2 hrs of social every day, *rundown*, remind me to send the deck p0.\n\nor tap *See options* below, WhatsApp-style.`,
+      { list: START_LIST },
     ),
   ];
 }
@@ -52,7 +151,8 @@ function helpText(): string {
     "• rundown / what's today",
     "• overlaps?",
     "• done with the deck",
-    "when you drop an event i'll ask the missing bits, then show how to-dos slide around. reply *lock it* when the plan looks right.",
+    "• add to calendar",
+    "when you drop an event i'll ask the missing bits, then show how to-dos slide around. tap *Lock it* when the plan looks right.",
   ].join("\n");
 }
 
@@ -101,7 +201,7 @@ function askFor(missing: string[], ev: ConversationDraft["event"]): string {
   ]
     .filter(Boolean)
     .join(" · ");
-  return `${known ? `got ${known}. ` : ""}still need: ${bits.join(" / ")}\njust fire a casual reply, like "tmrw 3pm for 45m, work".`;
+  return `${known ? `got *${known}*. ` : ""}still need: ${bits.join(" / ")}\njust fire a casual reply, like "tmrw 3pm for 45m, work".`;
 }
 
 function applyEventPatch(
@@ -135,6 +235,12 @@ function finalizeEvent(ev: NonNullable<ConversationDraft["event"]>): CalendarEve
   };
 }
 
+function askMessage(missing: string[], ev: ConversationDraft["event"]): ChatMessage {
+  return botText(askFor(missing, ev), {
+    buttons: missing.includes("kind") ? KIND_BUTTONS : undefined,
+  });
+}
+
 function findTodo(user: UserRecord, hint: string): TodoItem | undefined {
   const h = hint.toLowerCase();
   return user.todos.find((t) => t.title.toLowerCase().includes(h) && h.length > 1);
@@ -162,7 +268,26 @@ export function processTurn(
 
   if (next.draft.type === "event" && parsed.intent === "cancel") {
     next.draft = { type: "none", missing: [] };
-    push(botText("cool, scrapped that. what instead?"));
+    push(botText("cool, scrapped that. what instead?", { list: START_LIST }));
+  } else if (
+    next.draft.type === "event" &&
+    next.draft.event?.start &&
+    /\b\d+\s*(m|min|minutes|h|hour|hours)?\s*later\b/.test(parsed.normalized)
+  ) {
+    const shift = parsed.normalized.match(/(\d+)\s*(m|min|minutes|h|hour|hours)?/);
+    const n = Number(shift?.[1] || 30);
+    const unit = shift?.[2] || "m";
+    const add = /^h/.test(unit) ? n * 60 : n;
+    next.draft.event.start = minutesToHM(hmToMinutes(next.draft.event.start) + add);
+    const ev = finalizeEvent({ durationMinutes: 60, kind: "other", ...next.draft.event });
+    const proposal = proposeEvent(next, ev);
+    next.draft = { type: "event", event: next.draft.event, missing: [], proposal };
+    push(
+      withProposal(
+        `shifted to *${formatClock(ev.start)}*. here's the new layout — *Lock it* when you're good.`,
+        proposal,
+      ),
+    );
   } else if (next.draft.type === "event" && parsed.intent === "confirm" && next.draft.proposal) {
     const ev = finalizeEvent({
       durationMinutes: 60,
@@ -174,20 +299,24 @@ export function processTurn(
     const plan = buildDayPlan(next, ev.date);
     push(
       botText(
-        `locked. *${ev.title}* is on ${prettyDate(ev.date)} at ${formatClock(ev.start)}. i'll nudge you ${next.settings.reminderLeadMinutes} min before.`,
+        `locked. *${ev.title}* is on ${prettyDate(ev.date)} at ${formatClock(ev.start)}.\ni'll nudge you here ${next.settings.reminderLeadMinutes} min before.\n\ni *can't* write straight into Google/Apple/Android without you tapping — they don't let websites do that. tap a button and i'll hand it to your calendar app.`,
         {
-          type: "schedule",
-          date: ev.date,
-          lines: planLines(plan),
-          warnings: plan.warnings,
-          stats: plan.stats,
+          card: {
+            type: "schedule",
+            date: ev.date,
+            lines: planLines(plan),
+            warnings: plan.warnings,
+            stats: plan.stats,
+          },
+          buttons: CALENDAR_BUTTONS,
+          calendarEventId: ev.id,
         },
       ),
     );
   } else if (next.draft.type === "event" && (parsed.intent === "add_event" || parsed.intent === "unknown" || parsed.intent === "confirm" || parsed.intent === "chitchat")) {
     next.draft = applyEventPatch(next.draft, parsed);
     if (parsed.intent === "confirm" && next.draft.missing.length) {
-      push(botText(askFor(next.draft.missing, next.draft.event)));
+      push(askMessage(next.draft.missing, next.draft.event));
     } else if (next.draft.missing.length) {
       if (!next.draft.event?.durationMinutes) {
         next.draft.event = { ...next.draft.event, durationMinutes: 60 };
@@ -197,7 +326,7 @@ export function processTurn(
         }
       }
       if (next.draft.missing.length) {
-        push(botText(askFor(next.draft.missing, next.draft.event)));
+        push(askMessage(next.draft.missing, next.draft.event));
       }
     }
     if (!next.draft.missing.length && next.draft.event) {
@@ -205,8 +334,8 @@ export function processTurn(
       const proposal = proposeEvent(next, ev);
       next.draft = { ...next.draft, proposal, missing: [] };
       push(
-        botText(
-          `ok here's the move-around for *${ev.title}*. reply *lock it* to save, or tweak the time.`,
+        withProposal(
+          `ok here's the move-around for *${ev.title}*. tap *Lock it* to save, or tweak the time.`,
           proposal,
         ),
       );
@@ -321,15 +450,27 @@ export function processTurn(
     const missing = missingEventFields(ev);
     next.draft = { type: "event", event: ev, missing };
     if (missing.length) {
-      push(botText(askFor(missing, ev)));
+      push(askMessage(missing, ev));
     } else {
       const full = finalizeEvent(ev);
       const proposal = proposeEvent(next, full);
       next.draft = { type: "event", event: ev, missing: [], proposal };
       push(
-        botText(
-          `ok here's the move-around for *${full.title}*. reply *lock it* to save, or say a different time.`,
+        withProposal(
+          `ok here's the move-around for *${full.title}*. tap *Lock it* to save, or say a different time.`,
           proposal,
+        ),
+      );
+    }
+  } else if (parsed.intent === "calendar") {
+    const ev = next.events[next.events.length - 1];
+    if (!ev) {
+      push(botText("nothing locked yet. plan an event first, then i can hand it to your calendar."));
+    } else {
+      push(
+        botText(
+          `*${ev.title}* · ${prettyDate(ev.date)} ${formatClock(ev.start)}\n\nwebsites aren't allowed to silently write into Google, Apple, or Android calendars. tap *Google Calendar* to open a pre-filled event, or *Apple / Android* to download an .ics file your phone calendar will import.`,
+          { buttons: CALENDAR_BUTTONS, calendarEventId: ev.id },
         ),
       );
     }
@@ -337,10 +478,11 @@ export function processTurn(
     push(
       botText(
         `yo. want today's rundown, a new event, or to dump a to-do? i'll keep your social hours honest.`,
+        { list: START_LIST },
       ),
     );
   } else if (parsed.intent === "help") {
-    push(botText(helpText()));
+    push(botText(helpText(), { list: START_LIST }));
   } else if (parsed.intent === "status") {
     const today = dateISO(nowInZone(next.settings.timezone));
     const plan = buildDayPlan(next, today);
@@ -365,7 +507,14 @@ export function processTurn(
   } else {
     push(
       botText(
-        `i think you're talking about "${parsed.event.title}". want me to treat that as an *event*, a *to-do*, or a *rule*? or say "rundown" for today.`,
+        `i think you're talking about "${parsed.event.title}". treat it as:`,
+        {
+          buttons: [
+            { id: "as-event", title: "An event", payload: `plan ${parsed.event.title}` },
+            { id: "as-todo", title: "A to-do", payload: `remind me to ${parsed.event.title}` },
+            { id: "rundown", title: "Rundown", payload: "rundown" },
+          ],
+        },
       ),
     );
   }
