@@ -139,6 +139,30 @@ function greeting(name: string): ChatMessage[] {
   ];
 }
 
+function optionsMessage(): ChatMessage {
+  return botText(
+    "here's what else you can do — *Plan* and *Balance*. tap *See options*, or just text me.",
+    { list: START_LIST },
+  );
+}
+
+function connectedLabel(via: string): string {
+  switch (via) {
+    case "google":
+      return "Google Calendar";
+    case "apple":
+      return "Apple Calendar";
+    case "outlook":
+      return "Outlook";
+    case "copy":
+      return "your calendar app (feed URL copied)";
+    case "snapshot":
+      return "your calendar (via .ics snapshot)";
+    default:
+      return "your calendar";
+  }
+}
+
 function helpText(): string {
   return [
     "i get messy texts. try stuff like:",
@@ -152,7 +176,12 @@ function helpText(): string {
     "• overlaps?",
     "• done with the deck",
     "• add to calendar / connect calendar",
-    "when you drop an event i'll ask the missing bits, then show how to-dos slide around. tap *Lock it* when the plan looks right. tap *Connect calendar* to subscribe Google, Apple, Android, or Outlook to a live feed.",
+    "• give options",
+    "paste a list too:",
+    "• buy milk",
+    "• call jordan",
+    "• dump the outline 30m",
+    "when you drop an event i'll ask the missing bits, then show how to-dos slide around. tap *Lock it* when the plan looks right — after lock or cancel, scheduling stops until you bring it up again.",
   ].join("\n");
 }
 
@@ -265,10 +294,31 @@ export function processTurn(
     const arr = Array.isArray(m) ? m : [m];
     replies.push(...arr);
   };
+  const hasSlots = Boolean(
+    parsed.event.date || parsed.event.start || parsed.event.durationMinutes || parsed.event.kind,
+  );
 
-  if (next.draft.type === "event" && parsed.intent === "cancel") {
+  if (parsed.intent === "options") {
+    push(optionsMessage());
+  } else if (parsed.intent === "calendar_connected") {
+    const via =
+      parsed.normalized.match(
+        /\bconnected (?:my )?(google|apple|outlook|copy|snapshot)\b/,
+      )?.[1] || "your";
+    next.calendarConnectedAt = now;
+    next.calendarConnectedVia = via;
+    push(
+      botText(
+        `you're connected. *${connectedLabel(via)}* is hooked up to your live Balance feed.\nlocked events will show up on the next refresh (about 15 minutes).\n\nyou're all set — i won't keep scheduling until you bring something up.`,
+      ),
+    );
+  } else if (next.draft.type === "event" && parsed.intent === "cancel") {
     next.draft = { type: "none", missing: [] };
-    push(botText("cool, scrapped that. what instead?", { list: START_LIST }));
+    push(
+      botText(
+        "scrapped. scheduling's off until you bring it up again — say *give options* or just text the next thing.",
+      ),
+    );
   } else if (
     next.draft.type === "event" &&
     next.draft.event?.start &&
@@ -296,28 +346,24 @@ export function processTurn(
     });
     next.events = [...next.events, ev];
     next.draft = { type: "none", missing: [] };
-    const plan = buildDayPlan(next, ev.date);
+    const connected = Boolean(next.calendarConnectedAt);
     push(
       botText(
-        `locked. *${ev.title}* is on ${prettyDate(ev.date)} at ${formatClock(ev.start)}.\ni'll nudge you here ${next.settings.reminderLeadMinutes} min before.\n\n*Connect calendar* subscribes this device's calendar (Google, Apple, Android, Outlook) to your live Balance feed. Google (this event) is a one-shot add.`,
-        {
-          card: {
-            type: "schedule",
-            date: ev.date,
-            lines: planLines(plan),
-            warnings: plan.warnings,
-            stats: plan.stats,
-          },
-          buttons: CALENDAR_BUTTONS,
-          calendarEventId: ev.id,
-        },
+        `locked. *${ev.title}* is on ${prettyDate(ev.date)} at ${formatClock(ev.start)}.\ni'll nudge you here ${next.settings.reminderLeadMinutes} min before.\n\nscheduling's done for this one${connected ? "." : " — tap *Connect calendar* if this device isn't subscribed yet."} say *give options* or text me when you want to plan something else.`,
+        connected
+          ? undefined
+          : {
+              buttons: CALENDAR_BUTTONS,
+              calendarEventId: ev.id,
+            },
       ),
     );
-  } else if (next.draft.type === "event" && (parsed.intent === "add_event" || parsed.intent === "unknown" || parsed.intent === "confirm" || parsed.intent === "chitchat")) {
+  } else if (
+    next.draft.type === "event" &&
+    (parsed.intent === "add_event" || (parsed.intent === "unknown" && hasSlots))
+  ) {
     next.draft = applyEventPatch(next.draft, parsed);
-    if (parsed.intent === "confirm" && next.draft.missing.length) {
-      push(askMessage(next.draft.missing, next.draft.event));
-    } else if (next.draft.missing.length) {
+    if (next.draft.missing.length) {
       if (!next.draft.event?.durationMinutes) {
         next.draft.event = { ...next.draft.event, durationMinutes: 60 };
         next.draft.missing = missingEventFields(next.draft.event);
@@ -340,6 +386,22 @@ export function processTurn(
         ),
       );
     }
+  } else if (next.draft.type === "event") {
+    const title = next.draft.event?.title || "that event";
+    push(
+      botText(
+        `still on *${title}* — tap *Lock it* or *Cancel* to close it out. i won't start something else until this one's done.`,
+        next.draft.proposal ? { buttons: PROPOSAL_BUTTONS } : undefined,
+      ),
+    );
+  } else if (parsed.intent === "confirm") {
+    push(
+      botText(
+        "nothing's in the scheduler right now. say *give options* if you want the menu, or just text the next thing.",
+      ),
+    );
+  } else if (parsed.intent === "cancel") {
+    push(botText("nothing to cancel — we weren't scheduling. *give options* if you want the menu."));
   } else if (parsed.intent === "set_pref") {
     next.settings = { ...next.settings, ...parsed.prefs };
     const bits = Object.entries(parsed.prefs)
@@ -415,35 +477,58 @@ export function processTurn(
     if (parsed.todo.parentHint) {
       parentId = findTodo(next, parsed.todo.parentHint)?.id ?? null;
     }
-    const todo: TodoItem = {
-      id: uid("todo"),
-      title: parsed.todo.title || text.trim(),
-      priority: parsed.todo.priority || "p2",
-      parentId,
-      estimatedMinutes: parsed.todo.estimatedMinutes || 45,
-      dueDate: parsed.todo.dueDate,
-      done: false,
-      kind: parsed.todo.kind || "work",
-      createdAt: now,
-    };
-    next.todos = [...next.todos, todo];
+    const titles = (
+      parsed.todo.items?.length
+        ? parsed.todo.items
+        : [parsed.todo.title || text.split("\n")[0].trim()]
+    ).filter((t) => t && t.length > 1);
+    if (!titles.length) {
+      push(botText("that list came through empty. try bullets like:\n• buy milk\n• call jordan"));
+    } else {
+    const added: TodoItem[] = [];
+    for (const title of titles) {
+      const todo: TodoItem = {
+        id: uid("todo"),
+        title,
+        priority: parsed.todo.priority || "p2",
+        parentId: added.length === 0 ? parentId : parentId,
+        estimatedMinutes: parsed.todo.estimatedMinutes || 45,
+        dueDate: parsed.todo.dueDate,
+        done: false,
+        kind: parsed.todo.kind || "work",
+        createdAt: now,
+      };
+      added.push(todo);
+    }
+    next.todos = [...next.todos, ...added];
     const today = dateISO(nowInZone(next.settings.timezone));
     const plan = buildDayPlan(next, today);
-    push(
-      botText(
-        `added *${todo.title}* as ${todo.priority.toUpperCase()}${parentId ? " under its parent" : ""} · ${durationLabel(todo.estimatedMinutes)}. here's how today would absorb it:`,
-        {
-          type: "schedule",
-          date: today,
-          lines: planLines(plan),
-          warnings: plan.warnings,
-          stats: plan.stats,
-        },
-      ),
-    );
-    push(
-      botText("full tree:", { type: "todos", lines: renderTodos(next) }),
-    );
+    if (added.length > 1) {
+      push(
+        botText(
+          `got your list — added *${added.length}* to-dos:\n${added.map((t) => `• ${t.title}`).join("\n")}`,
+          { type: "todos", lines: renderTodos(next) },
+        ),
+      );
+    } else {
+      const todo = added[0];
+      push(
+        botText(
+          `added *${todo.title}* as ${todo.priority.toUpperCase()}${parentId ? " under its parent" : ""} · ${durationLabel(todo.estimatedMinutes)}. here's how today would absorb it:`,
+          {
+            type: "schedule",
+            date: today,
+            lines: planLines(plan),
+            warnings: plan.warnings,
+            stats: plan.stats,
+          },
+        ),
+      );
+      push(
+        botText("full tree:", { type: "todos", lines: renderTodos(next) }),
+      );
+    }
+    }
   } else if (parsed.intent === "add_event") {
     const ev: ConversationDraft["event"] = { ...parsed.event };
     if (!ev.durationMinutes) ev.durationMinutes = undefined;
@@ -482,12 +567,7 @@ export function processTurn(
       );
     }
   } else if (parsed.intent === "greet") {
-    push(
-      botText(
-        `yo. want today's rundown, a new event, or to dump a to-do? i'll keep your social hours honest.`,
-        { list: START_LIST },
-      ),
-    );
+    push(optionsMessage());
   } else if (parsed.intent === "help") {
     push(botText(helpText(), { list: START_LIST }));
   } else if (parsed.intent === "status") {
@@ -510,7 +590,7 @@ export function processTurn(
       ),
     );
   } else if (parsed.intent === "chitchat") {
-    push(botText("haha noted. you still want me to lock something, or we just vibing?"));
+    push(botText("haha noted. say *give options* if you want the menu, or just text the next thing."));
   } else {
     push(
       botText(

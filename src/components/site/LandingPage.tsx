@@ -105,7 +105,37 @@ export function LandingPage() {
           </div>
 
           {user ? (
-            <CalendarConnect user={user} origin={origin || (typeof window !== "undefined" ? window.location.origin : "")} />
+            <>
+              <CalendarConnect
+                user={user}
+                origin={origin || (typeof window !== "undefined" ? window.location.origin : "")}
+                onConnected={(via) => {
+                  void (async () => {
+                    try {
+                      const res = await fetch("/api/chat", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          user,
+                          text: `connected ${via} calendar`,
+                        }),
+                      });
+                      const data = await res.json();
+                      if (data.user) setUser(data.user);
+                    } catch {
+                      /* still show local confirm */
+                    }
+                  })();
+                }}
+              />
+              {user.calendarConnectedAt ? (
+                <p className="mt-4 rounded-xl bg-[#00a884]/15 px-4 py-3 text-[14px] text-[#00a884]">
+                  Connected
+                  {user.calendarConnectedVia ? ` via ${user.calendarConnectedVia}` : ""}. Open chat to
+                  see Balance&apos;s confirmation. Locked events will land on the next calendar refresh.
+                </p>
+              ) : null}
+            </>
           ) : (
             <div className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">

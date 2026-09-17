@@ -19,10 +19,12 @@ export function CalendarConnect({
   user,
   origin,
   compact,
+  onConnected,
 }: {
   user: UserRecord;
   origin: string;
   compact?: boolean;
+  onConnected?: (via: "google" | "apple" | "outlook" | "copy" | "snapshot") => void;
 }) {
   const token = user.calendarToken;
   const platform = useMemo(
@@ -50,6 +52,8 @@ export function CalendarConnect({
     try {
       await navigator.clipboard.writeText(httpsUrl);
       setCopied(true);
+      setHint("Copied. Paste this URL in your calendar app — you're connected once it accepts the subscribe.");
+      onConnected?.("copy");
       window.setTimeout(() => setCopied(false), 1800);
     } catch {
       setHint("Couldn’t copy — select the URL below.");
@@ -58,16 +62,14 @@ export function CalendarConnect({
 
   function openApple() {
     window.location.href = webcal;
-    setHint(
-      platform === "ios"
-        ? "Calendar should ask to subscribe. If nothing happens, copy the URL and paste it in Calendar → Calendars → Add Subscription."
-        : "macOS Calendar should open. If it doesn’t, File → New Calendar Subscription and paste the HTTPS URL.",
-    );
+    setHint("Opening Apple Calendar to subscribe. You're connected once it asks to add the calendar.");
+    onConnected?.("apple");
   }
 
   function snapshot() {
     downloadIcs(`balance-${user.nameKey}`, userFeedIcs(user));
-    setHint("That’s a one-off snapshot. Subscribe with the live feed if you want new events to show up automatically.");
+    setHint("Downloaded. Import the file in your calendar app — that's a snapshot, not a live subscribe.");
+    onConnected?.("snapshot");
   }
 
   const primary =
@@ -96,6 +98,11 @@ export function CalendarConnect({
           href={primary.href}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={() => {
+            const via = platform === "windows" ? "outlook" : "google";
+            setHint(`Opened ${via === "outlook" ? "Outlook" : "Google Calendar"} to subscribe. You're connected once you confirm Add.`);
+            onConnected?.(via);
+          }}
           className="flex w-full items-center justify-center rounded-full bg-[#00a884] px-4 py-3 text-[15px] font-semibold text-[#111b21]"
         >
           {primary.label}
@@ -111,7 +118,15 @@ export function CalendarConnect({
       )}
 
       <div className="grid gap-2 sm:grid-cols-2">
-        <OsLink href={google} title="Google Calendar" detail="Works on the web, Android, and Chromebooks" />
+        <OsLink
+          href={google}
+          title="Google Calendar"
+          detail="Works on the web, Android, and Chromebooks"
+          onClick={() => {
+            setHint("Opened Google Calendar to subscribe. You're connected once you confirm Add.");
+            onConnected?.("google");
+          }}
+        />
         <button
           type="button"
           onClick={openApple}
@@ -120,7 +135,15 @@ export function CalendarConnect({
           <p className="text-[14px] font-medium text-[#e9edef]">Apple Calendar</p>
           <p className="text-[12px] text-[#8696a0]">iPhone, iPad, and Mac via webcal</p>
         </button>
-        <OsLink href={outlook} title="Outlook" detail="Outlook on the web and Windows" />
+        <OsLink
+          href={outlook}
+          title="Outlook"
+          detail="Outlook on the web and Windows"
+          onClick={() => {
+            setHint("Opened Outlook to subscribe. You're connected once you confirm Add.");
+            onConnected?.("outlook");
+          }}
+        />
         <button
           type="button"
           onClick={snapshot}
@@ -159,12 +182,23 @@ export function CalendarConnect({
   );
 }
 
-function OsLink({ href, title, detail }: { href: string; title: string; detail: string }) {
+function OsLink({
+  href,
+  title,
+  detail,
+  onClick,
+}: {
+  href: string;
+  title: string;
+  detail: string;
+  onClick?: () => void;
+}) {
   return (
     <a
       href={href}
       target="_blank"
       rel="noopener noreferrer"
+      onClick={onClick}
       className="rounded-xl border border-white/10 bg-[#202c33] px-3 py-3 text-left hover:bg-white/5"
     >
       <p className="text-[14px] font-medium text-[#e9edef]">{title}</p>

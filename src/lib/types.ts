@@ -143,6 +143,8 @@ export interface UserRecord {
   draft: ConversationDraft;
   remindedEventIds: string[];
   calendarToken?: string;
+  calendarConnectedAt?: string;
+  calendarConnectedVia?: string;
   lastNlp?: NlpDebug;
   notes?: string;
 }

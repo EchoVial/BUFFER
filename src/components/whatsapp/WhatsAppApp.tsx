@@ -59,7 +59,7 @@ export function WhatsAppApp() {
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
-  const composer = useRef<HTMLInputElement>(null);
+  const composer = useRef<HTMLTextAreaElement>(null);
 
   const persist = useCallback((u: UserRecord) => {
     localStorage.setItem(LS, JSON.stringify(u));
@@ -203,7 +203,14 @@ export function WhatsAppApp() {
   const sendingRef = useRef(false);
 
   function composerValue() {
-    return (composer.current?.value ?? draft ?? search ?? "").trim();
+    return (composer.current?.value ?? draft ?? "").replace(/^\s+|\s+$/g, "");
+  }
+
+  function resizeComposer() {
+    const el = composer.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }
 
   async function send(text?: string) {
@@ -217,7 +224,10 @@ export function WhatsAppApp() {
     setSending(true);
     setDraft("");
     setSearch("");
-    if (composer.current) composer.current.value = "";
+    if (composer.current) {
+      composer.current.value = "";
+      composer.current.style.height = "44px";
+    }
     setEmojiOpen(false);
     setPlusOpen(false);
     setError(null);
@@ -306,7 +316,7 @@ export function WhatsAppApp() {
       ? []
       : last?.card?.type === "proposal"
         ? ["lock it", "nah, cancel", "make it 30m later"]
-        : ["rundown", "my todos", "connect calendar", "help"];
+        : ["rundown", "give options", "connect calendar"];
 
   function handleReplyButton(message: ChatMessage, button: ReplyButton) {
     const tz = user?.settings.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -604,7 +614,9 @@ export function WhatsAppApp() {
               {chips.map((c) => (
                 <button
                   key={c}
-                  onClick={() => (c === "connect calendar" ? setCalOpen(true) : void send(c))}
+                  onClick={() =>
+                    c === "connect calendar" ? setCalOpen(true) : void send(c)
+                  }
                   className="shrink-0 rounded-full border border-[#00a884]/40 bg-[#202c33] px-3 py-1 text-[13px] text-[#00a884]"
                 >
                   {c}
@@ -695,23 +707,28 @@ export function WhatsAppApp() {
               )}
             </div>
             <Paperclip className="mb-2 hidden size-5 text-[#8696a0] md:block" />
-            <input
+            <textarea
               ref={composer}
-              type="text"
               name="message"
+              rows={1}
               autoComplete="off"
               enterKeyHint="send"
               autoFocus
               defaultValue=""
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                resizeComposer();
+              }}
               onKeyDown={(e) => {
-                if (e.key === "Enter") {
+                if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   void send();
                 }
               }}
-              placeholder={awaitingName ? "Type your name, then send" : "Type a message"}
-              className="h-11 min-h-[44px] flex-1 rounded-lg bg-[#2a3942] px-3 text-[15px] outline-none placeholder:text-[#8696a0]"
+              placeholder={
+                awaitingName ? "Type your name, then send" : "Type a message. Shift+Enter for a new line."
+              }
+              className="max-h-40 min-h-[44px] flex-1 resize-none rounded-lg bg-[#2a3942] px-3 py-2.5 text-[15px] outline-none placeholder:text-[#8696a0]"
             />
             <button
               type="button"
@@ -799,6 +816,10 @@ export function WhatsAppApp() {
               <CalendarConnect
                 user={user}
                 origin={typeof window === "undefined" ? "" : window.location.origin}
+                onConnected={(via) => {
+                  setCalOpen(false);
+                  void send(`connected ${via} calendar`);
+                }}
               />
             ) : (
               <p className="text-sm text-[#8696a0]">

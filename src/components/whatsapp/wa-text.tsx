@@ -45,11 +45,22 @@ export function WhatsAppText({ text }: { text: string }) {
   const lines = text.split("\n");
   return (
     <span className="block whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-      {lines.map((line, i) => (
-        <span key={i} className="block min-h-[1.15em]">
-          {formatInline(line)}
-        </span>
-      ))}
+      {lines.map((line, i) => {
+        const bullet = line.match(/^(\s*)([-*•–—▪◦]|\d+[.)]|\[(?: |x|X)\])\s+(.*)$/);
+        if (bullet) {
+          return (
+            <span key={i} className="flex min-h-[1.15em] gap-2">
+              <span className="w-4 shrink-0 text-center text-[#00a884]">•</span>
+              <span className="min-w-0 flex-1">{formatInline(bullet[3])}</span>
+            </span>
+          );
+        }
+        return (
+          <span key={i} className="block min-h-[1.15em]">
+            {formatInline(line)}
+          </span>
+        );
+      })}
     </span>
   );
 }

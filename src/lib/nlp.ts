@@ -16,6 +16,8 @@ export type Intent =
   | "status"
   | "chitchat"
   | "calendar"
+  | "calendar_connected"
+  | "options"
   | "unknown";
 
 export interface ParsedMessage {
@@ -30,6 +32,7 @@ export interface ParsedMessage {
     kind?: EventKind;
     dueDate?: string;
     doneHint?: string;
+    items?: string[];
   };
   prefs: Partial<{
     socialMinutesPerDay: number;
@@ -342,7 +345,44 @@ function isConfirm(text: string): boolean {
 }
 
 function isCancel(text: string): boolean {
-  return /^(no|nope|nah|never mind|cancel|stop|forget it|don't|wait)$/.test(text);
+  return (
+    /^(no|nope|nah|never mind|nevermind|cancel|stop|forget it|don't|dont|wait)$/.test(text) ||
+    /\b(nah,? cancel|no,? cancel|cancel (it|that)|scrap (it|that)|never mind)\b/.test(text)
+  );
+}
+
+export function parseBulletItems(raw: string): string[] {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!lines.length) return [];
+  const strip = (l: string) =>
+    l
+      .replace(/^[-*•–—▪◦]\s+/, "")
+      .replace(/^\d+[.)]\s+/, "")
+      .replace(/^\[(?: |x|X)\]\s+/, "")
+      .trim();
+  const marked = lines.filter((l) => /^([-*•–—▪◦]|\d+[.)]|\[(?: |x|X)\])\s+\S/.test(l));
+  if (marked.length >= 2 || (marked.length === 1 && lines.length === 1)) {
+    return marked.map(strip).filter((t) => t.length > 1);
+  }
+  if (lines.length >= 2 && marked.length === lines.length) {
+    return lines.map(strip).filter((t) => t.length > 1);
+  }
+  return [];
+}
+
+function isOptionsAsk(text: string): boolean {
+  return (
+    /\b(what else can i do|what else can you do|what can i do|give (me )?(the )?options|see (the )?options|show (me )?(the )?options|more options|the options|see options)\b/.test(
+      text,
+    ) || /^(options|option|menu|what else)$/.test(text)
+  );
+}
+
+function isCalendarConnected(text: string): boolean {
+  return /\bconnected (my )?(google |apple |outlook |copy |snapshot )?(calendar)\b/.test(text);
 }
 
 export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
@@ -361,8 +401,11 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
   let intent: Intent = "unknown";
   const confirm = isConfirm(normalized);
   const cancel = isCancel(normalized);
+  const listItems = parseBulletItems(raw);
 
-  if (confirm) intent = "confirm";
+  if (isOptionsAsk(normalized)) intent = "options";
+  else if (isCalendarConnected(normalized)) intent = "calendar_connected";
+  else if (confirm) intent = "confirm";
   else if (cancel) intent = "cancel";
   else if (
     Object.keys(prefs).length &&
@@ -387,6 +430,8 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
     /\b(done with|finished|mark (as )?done|complete|checked off|tick off)\b/.test(normalized)
   ) {
     intent = "complete_todo";
+  } else if (listItems.length >= 2 || (listItems.length === 1 && /^[-*•–—]/.test(raw.trim()))) {
+    intent = "add_todo";
   } else if (
     /\b(remind me|todo|to-do|task|need to|gotta|got to|have to|don't forget|dont forget|add under)\b/.test(
       normalized,
@@ -436,6 +481,12 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
   title = title.replace(/\b\d+(?:\.\d+)?\s*(?:hours|hour|minutes|minute|hrs|hr|mins|min|h|m)\b/gi, "");
   title = title.replace(/\s+/g, " ").trim();
   title = title.replace(/(\b(for|to|with|at|on)\s*)+$/i, "").trim();
+  title = title.replace(/^[,.\s]+|[,.\s]+$/g, "").trim();
+  if (title.length < 2) {
+    if (/\bgym\b/.test(normalized)) title = "Gym";
+    else if (/\bmeeting\b/.test(normalized)) title = "Meeting";
+    else title = raw.split("\n")[0].trim() || "Event";
+  }
   title = title.charAt(0).toUpperCase() + title.slice(1);
 
   const parent = normalized.match(/\bunder\s+(.+?)(?::|,| add | - |$)/);
@@ -462,6 +513,7 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
       kind: kind || "work",
       dueDate: date,
       doneHint,
+      items: listItems.length ? listItems : undefined,
     },
     prefs,
     confirm,
