@@ -34,9 +34,6 @@ export function LandingPage() {
           <Link href="/chat" className="rounded-full bg-[#00a884] px-4 py-2 font-semibold text-[#111b21]">
             Open chat
           </Link>
-          <Link href="/admin" className="text-[#8696a0] hover:text-[#e9edef]">
-            Admin
-          </Link>
         </nav>
       </header>
 
@@ -162,7 +159,7 @@ export function LandingPage() {
           <Note
             icon={<Shield className="size-4" />}
             title="Private by design"
-            body="The feed URL is a secret token, not your name. Don’t share it. Rotate by switching person in chat and asking an admin to reset you."
+            body="The feed URL is a secret token, not your name. Don’t share it. Switch person in chat to use a different account."
           />
           <Note
             icon={<CalendarDays className="size-4" />}

@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
   if (!user) {
     if (!settings.allowAutoCreateUsers) {
       return NextResponse.json(
-        { error: "That name isn't on the list. Ask whoever runs this to add you in Admin." },
+        { error: "That name isn't on the list. Ask whoever runs this to add you." },
         { status: 403 },
       );
     }

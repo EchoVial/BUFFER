@@ -383,12 +383,6 @@ export function WhatsAppApp() {
             >
               Site
             </Link>
-            <Link
-              href="/admin"
-              className="rounded-full px-2 py-1 text-[11px] text-[#00a884] hover:bg-white/5"
-            >
-              Admin
-            </Link>
           </header>
           <div className="flex border-b border-white/5 bg-[#111b21] text-[13px] font-medium">
             {(["chats", "status", "calls"] as Tab[]).map((t) => (
@@ -565,9 +559,6 @@ export function WhatsAppApp() {
                   >
                     Switch person
                   </button>
-                  <Link href="/admin" className="block px-4 py-2 hover:bg-white/5">
-                    Admin console
-                  </Link>
                 </div>
               )}
             </div>
