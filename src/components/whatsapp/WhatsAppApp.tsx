@@ -316,7 +316,11 @@ export function WhatsAppApp() {
       ? []
       : last?.card?.type === "proposal"
         ? ["lock it", "nah, cancel", "make it 30m later"]
-        : ["rundown", "give options", "connect calendar"];
+        : [
+            "rundown",
+            "give options",
+            user?.calendarConnectedAt ? "add to calendar" : "connect calendar",
+          ];
 
   function handleReplyButton(message: ChatMessage, button: ReplyButton) {
     const tz = user?.settings.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -689,7 +693,9 @@ export function WhatsAppApp() {
                     ["📅 New event", "plan "],
                     ["✅ New to-do", "remind me to "],
                     ["📋 Today's rundown", "rundown"],
-                    ["📆 Connect calendar", "connect calendar"],
+                    user?.calendarConnectedAt
+                      ? ["📆 Add to calendar", "add to calendar"]
+                      : ["📆 Connect calendar", "connect calendar"],
                     ["⚖️ My rules", "i want "],
                   ].map(([label, fill]) => (
                     <button

@@ -52,12 +52,6 @@ const PROPOSAL_BUTTONS: ReplyButton[] = [
   { id: "cancel", title: "Cancel", payload: "nah, cancel" },
 ];
 
-const CALENDAR_BUTTONS: ReplyButton[] = [
-  { id: "connect", title: "Connect calendar", action: "connect-feed" },
-  { id: "gcal", title: "Google (this event)", action: "google-cal" },
-  { id: "outlook", title: "Outlook (this event)", action: "outlook-cal" },
-];
-
 const KIND_BUTTONS: ReplyButton[] = [
   { id: "work", title: "Work", payload: "it's work" },
   { id: "social", title: "Social", payload: "it's social" },
@@ -284,18 +278,53 @@ const CHANGE_BUTTONS: ReplyButton[] = [
   { id: "leave", title: "Leave it", payload: "leave it" },
 ];
 
+function calendarButtons(connected: boolean): ReplyButton[] {
+  if (connected) {
+    return [
+      { id: "gcal", title: "Google Calendar", action: "google-cal" },
+      { id: "outlook", title: "Outlook", action: "outlook-cal" },
+      { id: "ics", title: "Download .ics", action: "ics" },
+    ];
+  }
+  return [
+    { id: "connect", title: "Connect calendar", action: "connect-feed" },
+    { id: "gcal", title: "Google (this event)", action: "google-cal" },
+    { id: "outlook", title: "Outlook (this event)", action: "outlook-cal" },
+  ];
+}
+
 function lockFollowupButtons(connected: boolean): ReplyButton[] {
   return [
     { id: "reshuffle", title: "Move my tasks", payload: "reshuffle around this event" },
     { id: "star", title: "Star it", payload: "star this event" },
     connected
-      ? { id: "options", title: "See options", payload: "give options" }
+      ? { id: "addcal", title: "Add to calendar", payload: "add to calendar" }
       : { id: "connect", title: "Connect calendar", action: "connect-feed" },
   ];
 }
 
+function sameishTitle(a?: string, b?: string): boolean {
+  if (!a || !b) return true;
+  const na = a.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const nb = b.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (!na || !nb) return true;
+  return na === nb || na.includes(nb) || nb.includes(na);
+}
+
 function describeEvent(ev: CalendarEvent): string {
   return `*${ev.starred ? "★ " : ""}${ev.title}* · ${prettyDate(ev.date)} ${formatClock(ev.start)}`;
+}
+
+function lockEventMessage(next: UserRecord, ev: CalendarEvent): ChatMessage {
+  next.lastLockedEventId = ev.id;
+  const connected = Boolean(next.calendarConnectedAt);
+  return botText(
+    `locked in. *${ev.title}* is on ${prettyDate(ev.date)} at ${formatClock(ev.start)}.\ni'll nudge you here ${next.settings.reminderLeadMinutes} min before${ev.kind === "work" ? " (work)" : ""}.\n\nwant me to *move your tasks* around this, *star* it, or ${connected ? "*add it to your calendar*" : "*connect your calendar*"}? you can also just plan another event.`,
+    {
+      buttons: lockFollowupButtons(connected),
+      calendarEventId: ev.id,
+    },
+  );
 }
 
 function applyStar(
@@ -429,25 +458,149 @@ export function processTurn(
         proposal,
       ),
     );
-  } else if (next.draft.type === "event" && parsed.intent === "confirm" && next.draft.proposal) {
-    const ev = finalizeEvent({
-      durationMinutes: 60,
-      kind: "other",
-      ...next.draft.event,
-    });
-    next.events = [...next.events, ev];
-    next.draft = { type: "none", missing: [] };
-    next.lastLockedEventId = ev.id;
-    const connected = Boolean(next.calendarConnectedAt);
-    push(
-      botText(
-        `locked in. *${ev.title}* is on ${prettyDate(ev.date)} at ${formatClock(ev.start)}.\ni'll nudge you here ${next.settings.reminderLeadMinutes} min before${ev.kind === "work" ? " (work)" : ""}.\n\nwant me to *move your tasks* around this, or *star* it so i prompt you to finish it before other stuff?`,
-        {
-          buttons: lockFollowupButtons(connected),
-          calendarEventId: ev.id,
-        },
-      ),
-    );
+  } else if (next.draft.type === "event" && parsed.intent === "confirm") {
+    if (next.draft.event && !next.draft.event.durationMinutes) {
+      next.draft.event = { ...next.draft.event, durationMinutes: 60 };
+    }
+    if (next.draft.event && !next.draft.event.kind) {
+      next.draft.event = { ...next.draft.event, kind: "other" };
+    }
+    const missing = missingEventFields(next.draft.event);
+    if (missing.length) {
+      push(askMessage(missing, next.draft.event));
+    } else {
+      const ev = finalizeEvent({
+        durationMinutes: 60,
+        kind: "other",
+        ...next.draft.event,
+      });
+      next.events = [...next.events, ev];
+      next.draft = { type: "none", missing: [] };
+      push(lockEventMessage(next, ev));
+    }
+  } else if (parsed.intent === "edit_item") {
+    const named =
+      findNamedItem(next, parsed.targetHint || "") ||
+      findNamedItem(next, parsed.event.title || text);
+    if (!named) {
+      push(botText("i couldn't tell which event or to-do you meant. name it like it shows on the rundown."));
+    } else if (named.kind === "event") {
+      const patch: Partial<CalendarEvent> = {};
+      const bits: string[] = [];
+      if (parsed.renameTo) {
+        const title = parsed.renameTo.replace(/^(to)\s+/, "");
+        patch.title = title.charAt(0).toUpperCase() + title.slice(1);
+        bits.push(`rename to *${patch.title}*`);
+      }
+      if (parsed.event.date && parsed.event.date !== named.event.date) {
+        patch.date = parsed.event.date;
+        bits.push(`move to ${prettyDate(patch.date)}`);
+      }
+      if (parsed.event.start && parsed.event.start !== named.event.start) {
+        patch.start = parsed.event.start;
+        bits.push(`time ${formatClock(patch.start)}`);
+      }
+      if (parsed.event.durationMinutes && parsed.event.durationMinutes !== named.event.durationMinutes) {
+        patch.durationMinutes = parsed.event.durationMinutes;
+        bits.push(`length ${durationLabel(patch.durationMinutes)}`);
+      }
+      if (parsed.event.kind && parsed.event.kind !== named.event.kind) {
+        patch.kind = parsed.event.kind;
+        bits.push(`kind ${patch.kind}`);
+      }
+      if (!bits.length) {
+        push(botText(`that's *${named.event.title}* already. say what to change — time, day, length, or *star ${named.event.title}*.`));
+      } else {
+        const summary = bits.join(", ");
+        next.draft = {
+          type: "edit",
+          missing: [],
+          edit: {
+            kind: "event",
+            id: named.event.id,
+            title: named.event.title,
+            summary: `update *${named.event.title}*: ${summary}`,
+            eventPatch: patch,
+          },
+        };
+        push(
+          botText(
+            `found ${describeEvent(named.event)}.\ni can ${summary}. tap *Make the change* to apply it.`,
+            { buttons: CHANGE_BUTTONS, calendarEventId: named.event.id },
+          ),
+        );
+      }
+    } else {
+      const patch: Partial<TodoItem> = {};
+      const bits: string[] = [];
+      if (parsed.renameTo) {
+        const title = parsed.renameTo.replace(/^(to)\s+/, "");
+        patch.title = title.charAt(0).toUpperCase() + title.slice(1);
+        bits.push(`rename to *${patch.title}*`);
+      }
+      if (parsed.event.date && parsed.event.date !== named.todo.dueDate) {
+        patch.dueDate = parsed.event.date;
+        bits.push(`due ${prettyDate(patch.dueDate)}`);
+      }
+      if (parsed.todo.estimatedMinutes && parsed.todo.estimatedMinutes !== named.todo.estimatedMinutes) {
+        patch.estimatedMinutes = parsed.todo.estimatedMinutes;
+        bits.push(`estimate ${durationLabel(patch.estimatedMinutes)}`);
+      }
+      if (parsed.todo.priority && parsed.todo.priority !== named.todo.priority) {
+        patch.priority = parsed.todo.priority;
+        bits.push(`priority ${patch.priority.toUpperCase()}`);
+      }
+      if (parsed.todo.kind && parsed.todo.kind !== named.todo.kind) {
+        patch.kind = parsed.todo.kind;
+        bits.push(`kind ${patch.kind}`);
+      }
+      if (!bits.length) {
+        push(botText(`that's to-do *${named.todo.title}*. say the change — due day, time estimate, or *star ${named.todo.title}*.`));
+      } else {
+        const summary = bits.join(", ");
+        next.draft = {
+          type: "edit",
+          missing: [],
+          edit: {
+            kind: "todo",
+            id: named.todo.id,
+            title: named.todo.title,
+            summary: `update *${named.todo.title}*: ${summary}`,
+            todoPatch: patch,
+          },
+        };
+        push(
+          botText(
+            `found to-do *${named.todo.starred ? "★ " : ""}${named.todo.title}*.\ni can ${summary}. tap *Make the change* to apply it.`,
+            { buttons: CHANGE_BUTTONS },
+          ),
+        );
+      }
+    }
+  } else if (
+    next.draft.type === "event" &&
+    parsed.intent === "add_event" &&
+    parsed.event.title &&
+    !sameishTitle(next.draft.event?.title, parsed.event.title) &&
+    (parsed.event.date || parsed.event.start)
+  ) {
+    const ev: ConversationDraft["event"] = { ...parsed.event };
+    if (!ev.durationMinutes) ev.durationMinutes = 60;
+    const missing = missingEventFields(ev);
+    next.draft = { type: "event", event: ev, missing };
+    if (missing.length) {
+      push(askMessage(missing, ev));
+    } else {
+      const full = finalizeEvent(ev);
+      const proposal = proposeEvent(next, full);
+      next.draft = { type: "event", event: ev, missing: [], proposal };
+      push(
+        withProposal(
+          `switching to a new one: *${full.title}*. tap *Lock it* to save, or tweak the time.`,
+          proposal,
+        ),
+      );
+    }
   } else if (
     next.draft.type === "event" &&
     (parsed.intent === "add_event" || (parsed.intent === "unknown" && hasSlots))
@@ -550,105 +703,6 @@ export function processTurn(
           },
         ),
       );
-    }
-  } else if (parsed.intent === "edit_item") {
-    const named =
-      findNamedItem(next, parsed.targetHint || "") ||
-      findNamedItem(next, parsed.event.title || text);
-    if (!named) {
-      push(botText("i couldn't tell which event or to-do you meant. name it like it shows on the rundown."));
-    } else if (named.kind === "event") {
-      const patch: Partial<CalendarEvent> = {};
-      const bits: string[] = [];
-      if (parsed.renameTo) {
-        const title = parsed.renameTo.replace(/^(to)\s+/, "");
-        patch.title = title.charAt(0).toUpperCase() + title.slice(1);
-        bits.push(`rename to *${patch.title}*`);
-      }
-      if (parsed.event.date && parsed.event.date !== named.event.date) {
-        patch.date = parsed.event.date;
-        bits.push(`move to ${prettyDate(patch.date)}`);
-      }
-      if (parsed.event.start && parsed.event.start !== named.event.start) {
-        patch.start = parsed.event.start;
-        bits.push(`time ${formatClock(patch.start)}`);
-      }
-      if (parsed.event.durationMinutes && parsed.event.durationMinutes !== named.event.durationMinutes) {
-        patch.durationMinutes = parsed.event.durationMinutes;
-        bits.push(`length ${durationLabel(patch.durationMinutes)}`);
-      }
-      if (parsed.event.kind && parsed.event.kind !== named.event.kind) {
-        patch.kind = parsed.event.kind;
-        bits.push(`kind ${patch.kind}`);
-      }
-      if (!bits.length) {
-        push(botText(`that's *${named.event.title}* already. say what to change — time, day, length, or *star ${named.event.title}*.`));
-      } else {
-        const summary = bits.join(", ");
-        next.draft = {
-          type: "edit",
-          missing: [],
-          edit: {
-            kind: "event",
-            id: named.event.id,
-            title: named.event.title,
-            summary: `update *${named.event.title}*: ${summary}`,
-            eventPatch: patch,
-          },
-        };
-        push(
-          botText(
-            `found ${describeEvent(named.event)}.\ni can ${summary}. tap *Make the change* to apply it.`,
-            { buttons: CHANGE_BUTTONS, calendarEventId: named.event.id },
-          ),
-        );
-      }
-    } else {
-      const patch: Partial<TodoItem> = {};
-      const bits: string[] = [];
-      if (parsed.renameTo) {
-        const title = parsed.renameTo.replace(/^(to)\s+/, "");
-        patch.title = title.charAt(0).toUpperCase() + title.slice(1);
-        bits.push(`rename to *${patch.title}*`);
-      }
-      if (parsed.event.date && parsed.event.date !== named.todo.dueDate) {
-        patch.dueDate = parsed.event.date;
-        bits.push(`due ${prettyDate(patch.dueDate)}`);
-      }
-      if (parsed.todo.estimatedMinutes && parsed.todo.estimatedMinutes !== named.todo.estimatedMinutes) {
-        patch.estimatedMinutes = parsed.todo.estimatedMinutes;
-        bits.push(`estimate ${durationLabel(patch.estimatedMinutes)}`);
-      }
-      if (parsed.todo.priority && parsed.todo.priority !== named.todo.priority) {
-        patch.priority = parsed.todo.priority;
-        bits.push(`priority ${patch.priority.toUpperCase()}`);
-      }
-      if (parsed.todo.kind && parsed.todo.kind !== named.todo.kind) {
-        patch.kind = parsed.todo.kind;
-        bits.push(`kind ${patch.kind}`);
-      }
-      if (!bits.length) {
-        push(botText(`that's to-do *${named.todo.title}*. say the change — due day, time estimate, or *star ${named.todo.title}*.`));
-      } else {
-        const summary = bits.join(", ");
-        next.draft = {
-          type: "edit",
-          missing: [],
-          edit: {
-            kind: "todo",
-            id: named.todo.id,
-            title: named.todo.title,
-            summary: `update *${named.todo.title}*: ${summary}`,
-            todoPatch: patch,
-          },
-        };
-        push(
-          botText(
-            `found to-do *${named.todo.starred ? "★ " : ""}${named.todo.title}*.\ni can ${summary}. tap *Make the change* to apply it.`,
-            { buttons: CHANGE_BUTTONS },
-          ),
-        );
-      }
     }
   } else if (parsed.intent === "set_pref") {
     next.settings = { ...next.settings, ...parsed.prefs };
@@ -779,7 +833,8 @@ export function processTurn(
     }
   } else if (parsed.intent === "add_event") {
     const ev: ConversationDraft["event"] = { ...parsed.event };
-    if (!ev.durationMinutes) ev.durationMinutes = undefined;
+    if (!ev.durationMinutes) ev.durationMinutes = 60;
+    if (!ev.kind) ev.kind = "other";
     const missing = missingEventFields(ev);
     next.draft = { type: "event", event: ev, missing };
     if (missing.length) {
@@ -790,27 +845,34 @@ export function processTurn(
       next.draft = { type: "event", event: ev, missing: [], proposal };
       push(
         withProposal(
-          `ok here's the move-around for *${full.title}*. tap *Lock it* to save, or say a different time.`,
+          `ok here's the move-around for *${full.title}*. tap *Lock it* to save, or tweak it.`,
           proposal,
         ),
       );
     }
   } else if (parsed.intent === "calendar") {
-    const ev = next.events[next.events.length - 1];
-    const connect =
-      "tap *Connect calendar* and i'll match this device: Apple Calendar on iPhone/Mac, Google Calendar on Android/Chrome, Outlook on Windows. that's a live subscribe — new locked events show up on the next refresh.\n\nbrowsers still can't silently write into the OS calendar. one tap from you is the rule.";
+    const ev =
+      next.events.find((e) => e.id === next.lastLockedEventId) ||
+      next.events[next.events.length - 1];
+    const connected = Boolean(next.calendarConnectedAt);
     if (!ev) {
       push(
         botText(
-          `no events locked yet, but you can still subscribe the empty feed so later plans land automatically.\n\n${connect}`,
-          { buttons: [{ id: "connect", title: "Connect calendar", action: "connect-feed" }] },
+          connected
+            ? "nothing locked yet — plan an event first, then i can add that one to Google or Outlook."
+            : "nothing locked yet. tap *Connect calendar* to subscribe the live feed, or plan an event first.",
+          connected
+            ? undefined
+            : { buttons: [{ id: "connect", title: "Connect calendar", action: "connect-feed" }] },
         ),
       );
     } else {
       push(
         botText(
-          `*${ev.title}* · ${prettyDate(ev.date)} ${formatClock(ev.start)}\n\n${connect}`,
-          { buttons: CALENDAR_BUTTONS, calendarEventId: ev.id },
+          connected
+            ? `*${ev.title}* · ${prettyDate(ev.date)} ${formatClock(ev.start)}\n\nadd this event to Google, Outlook, or download a file. your live feed is already connected.`
+            : `*${ev.title}* · ${prettyDate(ev.date)} ${formatClock(ev.start)}\n\nyour calendar isn't connected yet — tap *Connect calendar* for the live feed, or add just this event to Google / Outlook.`,
+          { buttons: calendarButtons(connected), calendarEventId: ev.id },
         ),
       );
     }

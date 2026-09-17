@@ -331,7 +331,7 @@ function parsePrefs(text: string, notes: string[]) {
 
 function stripTitle(text: string): string {
   return text
-    .replace(/\b(please|can you|could you|wanna|i want to|i need to|remind me to|add|schedule|plan|book|put|set)\b/g, " ")
+    .replace(/\b(please|can you|could you|wanna|i want to|i need to|remind me to|add|schedule|plan|book|put|set|also|another|new|next|lets|let's|gonna|going to|create)\b/g, " ")
     .replace(/\b(today|tomorrow|tonight|this (?:morning|afternoon|evening|weekend)|next week)\b/g, " ")
     .replace(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\b/g, " ")
     .replace(/\b(at\s+)?\d{1,2}(?::\d{2})?\s*(am|pm)?\b/g, " ")
@@ -385,6 +385,23 @@ function isOptionsAsk(text: string): boolean {
     /\b(what else can i do|what else can you do|what can i do|give (me )?(the )?options|see (the )?options|show (me )?(the )?options|more options|the options|see options)\b/.test(
       text,
     ) || /^(options|option|menu|what else)$/.test(text)
+  );
+}
+
+function isAddLanguage(text: string): boolean {
+  return /\b(add|plan|book|schedule|put me down|new|another|also|create|set up|i have|i've got|i got|going to|gonna|let's|lets|can we add|put (me )?in|pencil (me |it )?in)\b/.test(
+    text,
+  );
+}
+
+function isChangeLanguage(text: string): boolean {
+  return (
+    /\b(change|changes|move|moved|rename|update|reschedule|shift|push|delay|switch|edit|instead|actually|bump|earlier|later)\b/.test(
+      text,
+    ) ||
+    /\b(make it|make the|make this|make that)\b/.test(text) ||
+    /\b(can you (change|move|update|edit|reschedule))\b/.test(text) ||
+    /\b(should be|needs to be|has to be)\b/.test(text)
   );
 }
 
@@ -447,22 +464,23 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
   ) {
     intent = "add_todo";
   } else if (
-    /\b(meeting|call|lunch|dinner|brunch|gym|interview|appointment|hang|date|block|deep work|sync|plan|schedule|book|put me down)\b/.test(
+    /\b(add to calendar|google calendar|apple calendar|android calendar|outlook calendar|connect calendar|subscribe calendar|sync calendar|put it on my calendar|export to calendar)\b/.test(
+      normalized,
+    )
+  ) {
+    intent = "calendar";
+  } else if (
+    /\b(meeting|call|lunch|dinner|brunch|gym|interview|appointment|hang|date|block|deep work|sync|book|put me down|dentist|doctor|class|workout|session)\b/.test(
       normalized,
     ) ||
-    (start && /\b(at|from|tomorrow|today|tonight|monday|friday)\b/.test(normalized))
+    isAddLanguage(normalized) ||
+    (start && /\b(at|from|tomorrow|today|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(normalized))
   ) {
     intent = "add_event";
   } else if (/^(hi|hey|hello|yo|sup|what's up|whats up|heya)$/.test(normalized)) {
     intent = "greet";
   } else if (/\b(help|what can you|how do i|commands)\b/.test(normalized)) {
     intent = "help";
-  } else if (
-    /\b(add to calendar|google calendar|apple calendar|android calendar|outlook calendar|connect calendar|subscribe calendar|sync calendar|put it on my calendar|export to calendar)\b/.test(
-      normalized,
-    )
-  ) {
-    intent = "calendar";
   } else if (/\b(how am i doing|buffer|burnout|overworked)\b/.test(normalized)) {
     intent = "status";
   } else if (
@@ -520,18 +538,14 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
     intent = "unstar";
   } else if (/\bstar\b/.test(normalized) || /\b(favourite|favorite|prioritize|pin this)\b/.test(normalized)) {
     intent = "star";
-  } else if (!lockedIntents.has(intent) && user.draft.type !== "event") {
+  } else if (!lockedIntents.has(intent)) {
     const hit = findNamedItem(user, targetHint) || findNamedItem(user, title);
-    const changeVerb =
-      Boolean(renameTo) ||
-      /\b(change|move|rename|update|reschedule|shift|push|delay|switch)\b/.test(normalized);
-    const slotChange = Boolean(date || start || durationMinutes || kind);
-    if (
-      hit &&
-      (changeVerb || slotChange) &&
-      !/\b(another|brand new|also add|plan an event)\b/.test(normalized)
-    ) {
+    const wantsAdd = isAddLanguage(normalized);
+    const wantsChange = Boolean(renameTo) || isChangeLanguage(normalized);
+    if (hit && wantsChange && !wantsAdd) {
       intent = "edit_item";
+    } else if (wantsAdd && intent !== "add_todo") {
+      intent = "add_event";
     }
   }
 
