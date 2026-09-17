@@ -23,6 +23,11 @@ export type Intent =
   | "unstar"
   | "edit_item"
   | "reshuffle"
+  | "week"
+  | "free_time"
+  | "plan_free"
+  | "protect"
+  | "clarify"
   | "unknown";
 
 export interface ParsedMessage {
@@ -53,6 +58,13 @@ export interface ParsedMessage {
   cancel: boolean;
   renameTo?: string;
   targetHint?: string;
+  /** From the Claude layer: one clarifying question and quick replies. */
+  question?: string;
+  options?: Array<{ title: string; payload: string }>;
+  /** From the Claude layer: a short natural line to use for chitchat / fallbacks. */
+  replyHint?: string;
+  /** From the Claude layer: durable facts to remember. */
+  memoryNotes?: string[];
   notes: string[];
   debug: NlpDebug;
 }
@@ -439,6 +451,18 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
   ) {
     intent = "set_pref";
   } else if (
+    /\b(keep|hold|block|protect|reserve|save)\b.*\b(free|for me|for myself|for people|for friends|evening|evenings|weekend|clear)\b/.test(normalized) ||
+    /\b(protect|block off|hold)\b/.test(normalized)
+  ) {
+    intent = "protect";
+  } else if (
+    /\b(what should i do|ideas? for|suggest|something to do|what to do with)\b/.test(normalized) &&
+    /\b(free|evening|weekend|time|tonight|today|tomorrow)\b/.test(normalized)
+  ) {
+    intent = "plan_free";
+  } else if (/\b(when am i free|am i free|free time|how's my week|hows my week|my week|this week|week ahead|next 7 days|whole week)\b/.test(normalized)) {
+    intent = /\bweek\b/.test(normalized) ? "week" : "free_time";
+  } else if (
     /\b(what's today|whats today|rundown|run down|my day|schedule|what's on|whats on|today look|plan for today|show (my )?day)\b/.test(
       normalized,
     )
@@ -522,6 +546,10 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
   const targetHint = hintFromText(raw) || title;
   const lockedIntents = new Set([
     "options",
+    "week",
+    "free_time",
+    "plan_free",
+    "protect",
     "calendar_connected",
     "confirm",
     "cancel",

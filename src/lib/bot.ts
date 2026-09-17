@@ -10,7 +10,9 @@ import {
   UserRecord,
 } from "./types";
 import { uid } from "./ids";
-import { parseMessage } from "./nlp";
+import { understand } from "./understand";
+import type { ParsedMessage } from "./nlp";
+import { describeWindow, hours, protectPayload, protectedEvent, slotName, suggestForFreeTime, suggestionPayload, weekCard, weekView, windowLabel } from "./life";
 import { findNamedItem } from "./match";
 import { buildDayPlan, planLines, proposeEvent, statsLine } from "./scheduler";
 import {
@@ -64,55 +66,23 @@ const START_LIST: InteractiveList = {
   footer: "or just text me like a friend",
   sections: [
     {
-      title: "Plan",
+      title: "Your week",
       rows: [
-        {
-          id: "rundown",
-          title: "Today's rundown",
-          description: "Hour by hour, what moved",
-          payload: "rundown",
-        },
-        {
-          id: "event",
-          title: "Plan an event",
-          description: "Meeting, gym, dinner…",
-          payload: "i want to plan an event",
-        },
-        {
-          id: "hang",
-          title: "Plan a hang",
-          description: "Coffee, dinner, a catch-up",
-          payload: "plan something social",
-        },
-        {
-          id: "todo",
-          title: "Add a to-do",
-          description: "Priority stack",
-          payload: "remind me to ",
-        },
+        { id: "week", title: "Free time this week", description: "Where the room is, day by day", payload: "how's my week" },
+        { id: "ideas", title: "Ideas for my free time", description: "People, movement, rest", payload: "what should i do with my free time" },
+        { id: "protect", title: "Hold an evening for me", description: "Work does not get scheduled there", payload: "protect an evening this week" },
+        { id: "rundown", title: "Today's rundown", description: "Hour by hour", payload: "rundown" },
       ],
     },
     {
-      title: "Buffer",
+      title: "Plan",
       rows: [
-        {
-          id: "social",
-          title: "Leave room for people",
-          description: "A daily window, if you want it",
-          payload: "i want 2 hrs of social every day",
-        },
-        {
-          id: "cal",
-          title: "Connect my calendar",
-          description: "Google, Apple, Android, Outlook",
-          payload: "connect calendar",
-        },
-        {
-          id: "help",
-          title: "How this works",
-          description: "Examples of what to text",
-          payload: "help",
-        },
+        { id: "hang", title: "Plan a hang", description: "Coffee, dinner, a catch-up", payload: "plan something social" },
+        { id: "event", title: "Plan an event", description: "Class, gym, meeting", payload: "i want to plan an event" },
+        { id: "todo", title: "Add a to-do", description: "No fixed time, priority stack", payload: "remind me to " },
+        { id: "social", title: "Room for people daily", description: "A standing window, if you want it", payload: "i want 2 hrs of social every day" },
+        { id: "cal", title: "Connect my calendar", description: "Google, Apple, Android, Outlook", payload: "connect calendar" },
+        { id: "help", title: "How this works", description: "Examples of what to text", payload: "help" },
       ],
     },
   ],
@@ -135,17 +105,14 @@ function userText(text: string): ChatMessage {
 function greeting(name: string): ChatMessage[] {
   return [
     botText(
-      `hey ${name.split(" ")[0]} 👋 i'm *Buffer*. i keep the calendar straight so there's still room for people — friends, family, a walk, a coffee — and i try not to nag.\n\ntext me like anyone: lunch w sam friday, gym tmrw 7pm, *rundown*, remind me to send the deck.\n\nor tap *See options*.`,
+      `hey ${name.split(" ")[0]}, i'm *Buffer*.\n\ni find the free time in your week and keep it for the rest of your life: people, a walk, a nap, a call home. work fits around that, not the other way round.\n\ntext me like a friend: *how's my week*, *keep thursday evening free*, *gym tmrw 7pm*, *what should i do this weekend*, *remind me to send the deck*.\n\nor tap *See options*.`,
       { list: START_LIST },
     ),
   ];
 }
 
 function optionsMessage(): ChatMessage {
-  return botText(
-    "here's what else you can do — *Plan* and *Buffer*. tap *See options*, or just text me.",
-    { list: START_LIST },
-  );
+  return botText("here's what i can do. tap one, or just text me.", { list: START_LIST });
 }
 
 function connectedLabel(via: string): string {
@@ -167,26 +134,24 @@ function connectedLabel(via: string): string {
 
 function helpText(): string {
   return [
-    "i get messy texts. try stuff like:",
-    "• lunch w sam friday at 1",
-    "• coffee with a friend this week",
+    "i read messy texts. try:",
+    "• how's my week / when am i free",
+    "• what should i do this weekend",
+    "• keep thursday evening free",
+    "• protect my evenings",
     "• gym tmrw 6:30pm for 1h",
+    "• dinner w sam friday at 8",
     "• remind me to finish the deck p0 90m",
-    "• add under deck: dump outline 30m",
-    "• leave me 2 hours for people every day",
     "• i work 9 to 6, no work after 7pm",
+    "• 2 hours for people every day",
     "• rundown / what's today",
-    "• overlaps?",
     "• done with the deck",
-    "• add to calendar / connect calendar",
-    "• give options",
+    "• move gym to 8pm · star gym",
+    "• connect calendar",
     "paste a list too:",
     "• buy milk",
     "• call jordan",
-    "• dump the outline 30m",
-    "• star gym / star the deck",
-    "• move gym to 8pm",
-    "when you drop an event i'll ask the missing bits, then show how to-dos slide around. tap *Lock it* when the plan looks right — after lock or cancel, scheduling stops until you bring it up again.",
+    "when you give me an event i fill the missing bits, show how the day settles, and you tap *Lock it*. held time stays held; work is not scheduled over it.",
   ].join("\n");
 }
 
@@ -240,7 +205,7 @@ function askFor(missing: string[], ev: ConversationDraft["event"]): string {
 
 function applyEventPatch(
   draft: ConversationDraft,
-  parsed: ReturnType<typeof parseMessage>,
+  parsed: ParsedMessage,
 ): ConversationDraft {
   const ev = { ...(draft.event || {}) };
   if (parsed.event.title && parsed.event.title.length > 1 && parsed.intent === "add_event") {
@@ -409,19 +374,20 @@ function applyStar(
     : "couldn't find that to-do.";
 }
 
-export function processTurn(
+export async function processTurn(
   user: UserRecord,
   text: string,
-): { user: UserRecord; replies: ChatMessage[] } {
+): Promise<{ user: UserRecord; replies: ChatMessage[] }> {
   const now = new Date().toISOString();
   const incoming = userText(text);
-  const parsed = parseMessage(text, user);
+  const parsed = await understand(text, user);
   const next: UserRecord = {
     ...user,
     messages: [...user.messages, incoming],
     lastNlp: parsed.debug,
     lastSeenAt: now,
     updatedAt: now,
+    notes: rememberNotes(user.notes, parsed.memoryNotes),
   };
   const replies: ChatMessage[] = [];
   const push = (m: ChatMessage | ChatMessage[]) => {
@@ -434,6 +400,77 @@ export function processTurn(
 
   if (parsed.intent === "options") {
     push(optionsMessage());
+  } else if (parsed.intent === "clarify" && parsed.question) {
+    push(
+      botText(parsed.question, {
+        buttons: (parsed.options ?? []).slice(0, 3).map((o, i) => ({ id: `clar-${i}`, title: o.title, payload: o.payload })),
+      }),
+    );
+  } else if (parsed.intent === "week" || parsed.intent === "free_time") {
+    const view = weekView(next);
+    const lead = view.totalFree
+      ? `outside work hours you have about *${hours(view.totalFree)}* free over the next 7 days${view.totalWork ? `, with ${hours(view.totalWork)} of work booked` : ""}.`
+      : "the next 7 days are packed edge to edge. that is the thing to fix first.";
+    const best = view.best.length ? `\nbiggest windows: ${view.best.slice(0, 3).map(windowLabel).join(" · ")}.` : "";
+    const nudge = view.best.length ? "\nwant me to hold one of those for people, or for you?" : "";
+    const buttons = view.best.slice(0, 2).map((w, i) => ({
+      id: `hold-${i}`,
+      title: `Hold ${slotName(w)}`.slice(0, 20),
+      payload: protectPayload(w, next.settings.timezone, "me"),
+    }));
+    push(
+      botText(`${lead}${best}${nudge}`, {
+        card: weekCard(view),
+        buttons: [...buttons, { id: "ideas", title: "Ideas", payload: "what should i do with my free time" }].slice(0, 3),
+      }),
+    );
+  } else if (parsed.intent === "plan_free") {
+    const view = weekView(next);
+    const picks = suggestForFreeTime(next, view);
+    if (!picks.length) {
+      push(botText("i can't find a 45-minute gap in the next week. say *keep thursday evening free* and i will make one."));
+    } else {
+      const lines = picks.map((p) => `• *${p.title}* · ${windowLabel(p.window)} · ${p.why}`);
+      push(
+        botText(`a few ways to spend the room you have:\n${lines.join("\n")}\n\ntap one and i'll put it on the calendar (you still get to *Lock it*).`, {
+          buttons: picks.map((p, i) => ({ id: `idea-${i}`, title: p.title.slice(0, 20), payload: suggestionPayload(p, next.settings.timezone) })),
+        }),
+      );
+    }
+  } else if (parsed.intent === "protect") {
+    const view = weekView(next);
+    const kind = parsed.event.kind === "social" || /\b(people|friends|family)\b/.test(parsed.normalized) ? "social" : "personal";
+    let date = parsed.event.date;
+    let start = parsed.event.start;
+    let duration = parsed.event.durationMinutes;
+    if (!date || !start) {
+      // "protect an evening this week": pick the best evening (or the best window on the named day).
+      const candidates = date ? view.best.filter((w) => w.date === date) : view.best.filter((w) => w.slot !== "day");
+      const w = candidates[0] ?? view.best[0];
+      if (!w) {
+        push(botText("there is no open evening left this week to hold. tell me a day and time and i will clear it, e.g. *keep saturday 10am to 12 free*."));
+        next.messages = [...next.messages, ...replies];
+        return { user: next, replies };
+      }
+      date = w.date;
+      start = start ?? minutesToHM(w.startMin);
+      duration = duration ?? Math.min(120, w.endMin - w.startMin);
+    }
+    duration = duration ?? 120;
+    const custom = parsed.event.title && !/^(protect|keep|hold|block|free|evening|weekend)/i.test(parsed.event.title) && !/(for me|for people|for myself)/i.test(parsed.event.title) ? parsed.event.title : undefined;
+    const ev = finalizeEvent(protectedEvent(date, start, duration, kind, custom));
+    next.events = [...next.events, ev];
+    next.lastLockedEventId = ev.id;
+    push(
+      botText(`held. *${ev.title}* · ${describeWindow(ev.date, ev.start, ev.durationMinutes)}.\nwork will not get scheduled over it, and it goes to your calendar with the next refresh.`, {
+        buttons: [
+          { id: "week", title: "Rest of the week", payload: "how's my week" },
+          { id: "ideas", title: "Ideas for it", payload: "what should i do with my free time" },
+          ...calendarButtons(Boolean(next.calendarConnectedAt)).slice(0, 1),
+        ],
+        calendarEventId: ev.id,
+      }),
+    );
   } else if (next.draft.type === "edit" && parsed.intent === "confirm" && next.draft.edit) {
     const edit = next.draft.edit;
     if (edit.kind === "event") {
@@ -940,8 +977,6 @@ export function processTurn(
         ),
       );
     }
-  } else if (parsed.intent === "greet") {
-    push(optionsMessage());
   } else if (parsed.intent === "help") {
     push(botText(helpText(), { list: START_LIST }));
   } else if (parsed.intent === "status") {
@@ -960,11 +995,13 @@ export function processTurn(
       ),
     );
   } else if (parsed.intent === "chitchat") {
-    push(botText("haha noted. whenever you want a hang or a rundown, just say."));
+    push(botText(parsed.replyHint || "noted. whenever you want the week, an idea, or a rundown, just say."));
+  } else if (parsed.intent === "greet") {
+    push(optionsMessage());
   } else {
     push(
       botText(
-        `i think you're talking about "${parsed.event.title}". treat it as:`,
+        parsed.replyHint ? `${parsed.replyHint}\nwant me to treat *${parsed.event.title}* as:` : `i think you're talking about "${parsed.event.title}". treat it as:`,
         {
           buttons: [
             { id: "as-event", title: "An event", payload: `plan ${parsed.event.title}` },
@@ -1039,3 +1076,44 @@ export function dueReminders(user: UserRecord): ChatMessage[] {
 }
 
 export { greeting };
+
+/** Keep at most 20 short facts; newest last; no duplicates. */
+function rememberNotes(existing: string | undefined, fresh: string[] | undefined): string | undefined {
+  if (!fresh?.length) return existing;
+  const lines = (existing || "").split("\n").map((l) => l.trim()).filter(Boolean);
+  for (const f of fresh) {
+    const t = f.trim().replace(/\s+/g, " ");
+    if (t && !lines.some((l) => l.toLowerCase() === t.toLowerCase())) lines.push(t);
+  }
+  return lines.slice(-20).join("\n");
+}
+
+/**
+ * Once a day, after wake time: where the free time is this week and one
+ * offer to hold some of it. Proactive, but only when there is something to say.
+ */
+export function dailyDigest(user: UserRecord): { message?: ChatMessage; patch?: Partial<UserRecord> } {
+  const now = nowInZone(user.settings.timezone);
+  const today = dateISO(now);
+  if (user.lastDigestDate === today) return {};
+  const minutesNow = now.getHours() * 60 + now.getMinutes();
+  if (minutesNow < hmToMinutes(user.settings.wakeTime || "07:00") + 30) return {};
+  if (!user.events.length && !user.todos.length) return {};
+  const view = weekView(user);
+  const best = view.best[0];
+  const text = best
+    ? `morning. outside work you have about *${hours(view.totalFree)}* free this week${view.totalWork ? `, with ${hours(view.totalWork)} of work booked` : ""}. the best open window is ${windowLabel(best)}. want me to hold it for people, or for you?`
+    : `morning. the next 7 days are wall to wall. say *keep an evening free* and i will carve one out.`;
+  return {
+    message: botText(text, {
+      buttons: best
+        ? [
+            { id: "hold-people", title: "Hold it for people", payload: protectPayload(best, user.settings.timezone, "people") },
+            { id: "hold-me", title: "Hold it for me", payload: protectPayload(best, user.settings.timezone, "me") },
+            { id: "week", title: "Show the week", payload: "how's my week" },
+          ]
+        : [{ id: "protect", title: "Keep an evening free", payload: "protect an evening this week" }],
+    }),
+    patch: { lastDigestDate: today },
+  };
+}

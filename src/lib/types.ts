@@ -170,6 +170,8 @@ export interface UserRecord {
   calendarConnectedVia?: string;
   lastNlp?: NlpDebug;
   notes?: string;
+  /** Date (YYYY-MM-DD, user tz) of the last morning digest, so it goes out once a day. */
+  lastDigestDate?: string;
 }
 
 export interface NlpDebug {
@@ -211,7 +213,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   botDisplayName: "Buffer",
   botAbout:
-    "Keeps the calendar honest and leaves a little room for people — friends, family, a walk, a coffee — without nagging.",
+    "Finds the free time in your week and keeps it for the rest of your life: people, movement, rest. Work fits around that, not the other way round.",
   defaultUserSettings: DEFAULT_USER_SETTINGS,
   debugNlpInChat: false,
   allowAutoCreateUsers: true,

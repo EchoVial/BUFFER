@@ -1,8 +1,14 @@
 # Buffer
 
-WhatsApp-style work-life chat that lands on Google, Apple, Android, and Outlook calendars.
+WhatsApp-style assistant that finds the free time in your week and keeps it for the rest of your life: people, movement, rest. Work fits around that, not the other way round. Everything you lock lands on Google, Apple, Android, and Outlook calendars through a private live feed.
 
-Text Buffer like a friend (`gym tmrw 7pm`, `i want 2 hrs of social every day`, `rundown`). Locked events publish to a private ICS feed your OS calendar can subscribe to.
+Text Buffer like a friend: `how's my week`, `keep thursday evening free`, `what should i do this weekend`, `gym tmrw 7pm`, `remind me to send the deck`, `rundown`.
+
+## How it understands you
+
+`src/lib/understand.ts` sends each message, with the user's timezone, settings, upcoming events, open to-dos, remembered facts and the last few messages, to Claude (`src/lib/llm.ts`, structured output) and gets back one typed action: intent, title, date, time, length, kind, or a single clarifying question with quick-reply buttons. The scheduler (`src/lib/scheduler.ts`, `src/lib/life.ts`) then does the calendar arithmetic deterministically. Set `ANTHROPIC_API_KEY`; without it the old regex parser in `src/lib/nlp.ts` takes over, so the demo never breaks.
+
+Life-first features: `how's my week` (free time per day, best windows), `what should i do with my free time` (ideas placed into real gaps, shaped by what the week is missing), `protect thursday evening` (a held block that work cannot be scheduled over), and a once-a-day morning digest with an offer to hold the best window.
 
 ## Git
 
@@ -42,6 +48,7 @@ Standard Next.js App Router app. No custom build command.
    | --- | --- | --- |
    | `ADMIN_PASSWORD` | Yes on Vercel | Password for `/admin`. If this is missing on Vercel, `/admin` stays locked. |
    | `KV_REST_API_URL` + `KV_REST_API_TOKEN` | Optional | Vercel KV / Upstash so chats survive deploys. |
+   | `ANTHROPIC_API_KEY` | Recommended | Claude does the natural-language understanding. Without it Buffer uses the rule-based parser. |
 
 5. Deploy. Chat: `https://your-project.vercel.app/chat`. Console: change the path to `/admin`.
 
