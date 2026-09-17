@@ -30,7 +30,7 @@ export function googleCalendarUrl(event: CalendarEvent, timeZone: string): strin
     text: event.title,
     dates,
     ctz: timeZone || "UTC",
-    details: `Logged from Balance chat · ${event.kind}`,
+    details: `Logged from Buffer chat · ${event.kind}`,
   });
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
@@ -40,16 +40,16 @@ export function eventToIcs(event: CalendarEvent, timeZone: string): string {
   return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Balance//Chat//EN",
+    "PRODID:-//Buffer//Chat//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     "BEGIN:VEVENT",
-    `UID:${event.id}@balance.chat`,
+    `UID:${event.id}@buffer.chat`,
     `DTSTAMP:${stamp(event.date, event.start)}`,
     `DTSTART;TZID=${tz}:${stamp(event.date, event.start)}`,
     `DTEND;TZID=${tz}:${endStamp(event.date, event.start, event.durationMinutes)}`,
-    `SUMMARY:${icsEscape(event.title)}`,
-    `DESCRIPTION:${icsEscape(`Balance · ${event.kind}`)}`,
+    `SUMMARY:${icsEscape(event.starred ? `★ ${event.title}` : event.title)}`,
+    `DESCRIPTION:${icsEscape(`Buffer · ${event.kind}`)}`,
     "END:VEVENT",
     "END:VCALENDAR",
     "",
@@ -64,9 +64,9 @@ export function todosToIcs(todos: TodoItem[], timeZone: string): string {
       const due = t.dueDate ? `DUE;VALUE=DATE:${t.dueDate.replace(/-/g, "")}` : null;
       return [
         "BEGIN:VTODO",
-        `UID:${t.id}@balance.chat`,
-        `SUMMARY:${icsEscape(t.title)}`,
-        `PRIORITY:${t.priority === "p0" ? 1 : t.priority === "p1" ? 3 : 5}`,
+        `UID:${t.id}@buffer.chat`,
+        `SUMMARY:${icsEscape(t.starred ? `★ ${t.title}` : t.title)}`,
+        `PRIORITY:${t.starred || t.priority === "p0" ? 1 : t.priority === "p1" ? 3 : 5}`,
         due,
         `DESCRIPTION:${icsEscape(`${t.kind} · ${tz}`)}`,
         "END:VTODO",
@@ -74,7 +74,7 @@ export function todosToIcs(todos: TodoItem[], timeZone: string): string {
         .filter(Boolean)
         .join("\r\n");
     });
-  return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Balance//Chat//EN", ...items, "END:VCALENDAR", ""].join(
+  return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Buffer//Chat//EN", ...items, "END:VCALENDAR", ""].join(
     "\r\n",
   );
 }
@@ -101,12 +101,12 @@ export function userFeedIcs(user: Pick<UserRecord, "name" | "settings" | "events
   const vevents = user.events.map((event) =>
     [
       "BEGIN:VEVENT",
-      `UID:${event.id}@balance.chat`,
+      `UID:${event.id}@buffer.chat`,
       `DTSTAMP:${dtstamp}`,
       `DTSTART;TZID=${tz}:${stamp(event.date, event.start)}`,
       `DTEND;TZID=${tz}:${endStamp(event.date, event.start, event.durationMinutes)}`,
-      `SUMMARY:${icsEscape(event.title)}`,
-      `DESCRIPTION:${icsEscape(`Balance · ${event.kind}${event.notes ? ` · ${event.notes}` : ""}`)}`,
+      `SUMMARY:${icsEscape(event.starred ? `★ ${event.title}` : event.title)}`,
+      `DESCRIPTION:${icsEscape(`Buffer · ${event.kind}${event.notes ? ` · ${event.notes}` : ""}`)}`,
       `CATEGORIES:${icsEscape(event.kind)}`,
       "END:VEVENT",
     ].join("\r\n"),
@@ -117,10 +117,10 @@ export function userFeedIcs(user: Pick<UserRecord, "name" | "settings" | "events
       const due = t.dueDate ? `DUE;VALUE=DATE:${t.dueDate.replace(/-/g, "")}` : null;
       return [
         "BEGIN:VTODO",
-        `UID:${t.id}@balance.chat`,
+        `UID:${t.id}@buffer.chat`,
         `DTSTAMP:${dtstamp}`,
-        `SUMMARY:${icsEscape(t.title)}`,
-        `PRIORITY:${t.priority === "p0" ? 1 : t.priority === "p1" ? 3 : 5}`,
+        `SUMMARY:${icsEscape(t.starred ? `★ ${t.title}` : t.title)}`,
+        `PRIORITY:${t.starred || t.priority === "p0" ? 1 : t.priority === "p1" ? 3 : 5}`,
         due,
         `STATUS:NEEDS-ACTION`,
         `DESCRIPTION:${icsEscape(`${t.kind} · ${tz}`)}`,
@@ -132,12 +132,12 @@ export function userFeedIcs(user: Pick<UserRecord, "name" | "settings" | "events
   return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Balance//Work Life Chat//EN",
+    "PRODID:-//Buffer//Work Life Chat//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
-    `X-WR-CALNAME:${icsEscape(`Balance — ${user.name}`)}`,
+    `X-WR-CALNAME:${icsEscape(`Buffer — ${user.name}`)}`,
     `X-WR-TIMEZONE:${tz}`,
-    "X-WR-CALDESC:Live schedule from Balance chat. Refresh to pick up locked events.",
+    "X-WR-CALDESC:Live schedule from Buffer chat. Refresh to pick up locked events.",
     "REFRESH-INTERVAL;VALUE=DURATION:PT15M",
     "X-PUBLISHED-TTL:PT15M",
     ...vevents,
@@ -160,7 +160,7 @@ export function originFromRequest(req: { headers: Headers; nextUrl?: URL }): str
 }
 
 export function icsHttpUrl(origin: string, token: string): string {
-  return `${origin.replace(/\/$/, "")}/api/calendar/${encodeURIComponent(token)}`;
+  return `${origin.replace(/\/$/, "")}/api/calendar/${encodeURIComponent(token)}/feed.ics`;
 }
 
 export function icsWebcalUrl(origin: string, token: string): string {
@@ -171,9 +171,46 @@ export function googleSubscribeUrl(origin: string, token: string): string {
   return `https://calendar.google.com/calendar/render?cid=${encodeURIComponent(icsWebcalUrl(origin, token))}`;
 }
 
+export function isPublicHttpsOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    if (u.protocol !== "https:") return false;
+    const host = u.hostname.toLowerCase();
+    if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".local")) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function outlookSubscribeUrl(origin: string, token: string, calendarName: string): string {
   const url = icsHttpUrl(origin, token);
-  return `https://outlook.live.com/calendar/0/addfromweb?url=${encodeURIComponent(url)}&name=${encodeURIComponent(calendarName)}`;
+  const params = new URLSearchParams({ url, name: calendarName });
+  return `https://outlook.office.com/calendar/0/addfromweb?${params.toString()}`;
+}
+
+export function outlookLiveSubscribeUrl(origin: string, token: string, calendarName: string): string {
+  const url = icsHttpUrl(origin, token);
+  const params = new URLSearchParams({ url, name: calendarName });
+  return `https://outlook.live.com/calendar/0/addfromweb?${params.toString()}`;
+}
+
+export function outlookEventUrl(event: CalendarEvent): string {
+  const start = `${event.date}T${event.start}:00`;
+  const endMins =
+    Number(event.start.slice(0, 2)) * 60 + Number(event.start.slice(3, 5)) + event.durationMinutes;
+  const eh = String(Math.floor((endMins % (24 * 60)) / 60)).padStart(2, "0");
+  const em = String(endMins % 60).padStart(2, "0");
+  const end = `${event.date}T${eh}:${em}:00`;
+  const params = new URLSearchParams({
+    rru: "addevent",
+    path: "/calendar/action/compose",
+    subject: event.starred ? `★ ${event.title}` : event.title,
+    startdt: start,
+    enddt: end,
+    body: `Buffer · ${event.kind}`,
+  });
+  return `https://outlook.live.com/calendar/0/deeplink/compose?${params.toString()}`;
 }
 
 export type CalendarPlatform = "ios" | "mac" | "android" | "windows" | "other";

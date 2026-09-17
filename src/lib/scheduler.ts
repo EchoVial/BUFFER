@@ -42,6 +42,7 @@ function openTodos(user: UserRecord): TodoItem[] {
   return user.todos
     .filter((t) => !t.done)
     .sort((a, b) => {
+      if (Boolean(a.starred) !== Boolean(b.starred)) return a.starred ? -1 : 1;
       const rank = { p0: 0, p1: 1, p2: 2, p3: 3 };
       if (rank[a.priority] !== rank[b.priority]) {
         return rank[a.priority] - rank[b.priority];
@@ -96,7 +97,7 @@ export function buildDayPlan(user: UserRecord, date: string): DayPlan {
     return {
       startMin: start,
       endMin: start + e.durationMinutes,
-      title: e.title,
+      title: e.starred ? `★ ${e.title}` : e.title,
       kind: "event",
       subtype: e.kind,
       id: e.id,
@@ -142,7 +143,28 @@ export function buildDayPlan(user: UserRecord, date: string): DayPlan {
       continue;
     }
     let placed = false;
+    if (todo.plannedDate === date && todo.plannedStart) {
+      const start = hmToMinutes(todo.plannedStart);
+      const end = start + todo.estimatedMinutes;
+      const gap = gaps.find((g) => g.start <= start && g.end >= end);
+      if (gap) {
+        todoBlocks.push({
+          startMin: start,
+          endMin: end,
+          title: todo.starred ? `★ ${todo.title}` : todo.title,
+          kind: "todo",
+          subtype: todo.kind,
+          id: todo.id,
+          movable: true,
+        });
+        if (start === gap.start) gap.start = end;
+        placed = true;
+        if (todo.kind === "work") workUsed += todo.estimatedMinutes;
+        if (todo.kind === "social") socialUsed += todo.estimatedMinutes;
+      }
+    }
     for (const gap of gaps) {
+      if (placed) break;
       const lo =
         todo.kind === "work" ? Math.max(gap.start, hmToMinutes(s.workStart)) : gap.start;
       const hi =
@@ -159,7 +181,7 @@ export function buildDayPlan(user: UserRecord, date: string): DayPlan {
       todoBlocks.push({
         startMin: start,
         endMin: end,
-        title: todo.title,
+        title: todo.starred ? `★ ${todo.title}` : todo.title,
         kind: "todo",
         subtype: todo.kind,
         id: todo.id,
@@ -244,7 +266,7 @@ export function buildDayPlan(user: UserRecord, date: string): DayPlan {
   }
   if (workUsed > s.maxWorkMinutesPerDay) {
     warnings.push(
-      `Work load ${durationLabel(workUsed)} is over your ${durationLabel(s.maxWorkMinutesPerDay)} cap. Balance would rather you drop or split something.`,
+      `Work load ${durationLabel(workUsed)} is over your ${durationLabel(s.maxWorkMinutesPerDay)} cap. Buffer would rather you drop or split something.`,
     );
   }
   for (const e of dayEvents) {

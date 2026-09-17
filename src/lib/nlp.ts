@@ -1,5 +1,6 @@
 import { CalendarEvent, EventKind, NlpDebug, TodoPriority, UserRecord } from "./types";
 import { addDaysISO, dateISO, hmToMinutes, minutesToHM, nowInZone, weekdayIndex } from "./time";
+import { findNamedItem, hintFromText } from "./match";
 
 export type Intent =
   | "greet"
@@ -18,6 +19,10 @@ export type Intent =
   | "calendar"
   | "calendar_connected"
   | "options"
+  | "star"
+  | "unstar"
+  | "edit_item"
+  | "reshuffle"
   | "unknown";
 
 export interface ParsedMessage {
@@ -46,6 +51,8 @@ export interface ParsedMessage {
   }>;
   confirm: boolean;
   cancel: boolean;
+  renameTo?: string;
+  targetHint?: string;
   notes: string[];
   debug: NlpDebug;
 }
@@ -339,15 +346,15 @@ function stripTitle(text: string): string {
 }
 
 function isConfirm(text: string): boolean {
-  return /^(yes|y|ok|okay|sure|do it|lock it|lock|go ahead|sounds good|perfect|bet|i guess|alright|all good|yup|confirm|save it)$/.test(
+  return /^(yes|y|ok|okay|sure|do it|lock it|lock|go ahead|sounds good|perfect|bet|i guess|alright|all good|yup|confirm|save it|make the change|apply it)$/.test(
     text,
-  ) || /\b(lock it in|make it so|go for it)\b/.test(text);
+  ) || /\b(lock it in|make it so|go for it|make the change|yes change it|apply the change)\b/.test(text);
 }
 
 function isCancel(text: string): boolean {
   return (
-    /^(no|nope|nah|never mind|nevermind|cancel|stop|forget it|don't|dont|wait)$/.test(text) ||
-    /\b(nah,? cancel|no,? cancel|cancel (it|that)|scrap (it|that)|never mind)\b/.test(text)
+    /^(no|nope|nah|never mind|nevermind|cancel|stop|forget it|don't|dont|wait|leave it)$/.test(text) ||
+    /\b(nah,? cancel|no,? cancel|cancel (it|that)|scrap (it|that)|never mind|leave it)\b/.test(text)
   );
 }
 
@@ -456,7 +463,7 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
     )
   ) {
     intent = "calendar";
-  } else if (/\b(how am i doing|balance|burnout|overworked)\b/.test(normalized)) {
+  } else if (/\b(how am i doing|buffer|burnout|overworked)\b/.test(normalized)) {
     intent = "status";
   } else if (
     /\b(thanks|thank you|lol|haha|ok cool|cool|nice|love you)\b/.test(normalized)
@@ -489,6 +496,45 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
   }
   title = title.charAt(0).toUpperCase() + title.slice(1);
 
+  const renameTo = (normalized.match(/\b(?:rename|change)\s+.+?\s+to\s+(.+)$/) ||
+    normalized.match(/\bcall (?:it|that)\s+(.+)$/))?.[1]?.trim();
+  const targetHint = hintFromText(raw) || title;
+  const lockedIntents = new Set([
+    "options",
+    "calendar_connected",
+    "confirm",
+    "cancel",
+    "set_pref",
+    "schedule",
+    "help",
+    "calendar",
+    "complete_todo",
+    "overlaps",
+    "greet",
+  ]);
+  if (/\b(reshuffle|move (around )?my tasks|shuffle (my )?tasks|move around tasks|move tasks around|reshuffle around this event)\b/.test(
+    normalized,
+  )) {
+    intent = "reshuffle";
+  } else if (/\b(unstar|unpin|unfavourite|unfavorite)\b/.test(normalized)) {
+    intent = "unstar";
+  } else if (/\bstar\b/.test(normalized) || /\b(favourite|favorite|prioritize|pin this)\b/.test(normalized)) {
+    intent = "star";
+  } else if (!lockedIntents.has(intent) && user.draft.type !== "event") {
+    const hit = findNamedItem(user, targetHint) || findNamedItem(user, title);
+    const changeVerb =
+      Boolean(renameTo) ||
+      /\b(change|move|rename|update|reschedule|shift|push|delay|switch)\b/.test(normalized);
+    const slotChange = Boolean(date || start || durationMinutes || kind);
+    if (
+      hit &&
+      (changeVerb || slotChange) &&
+      !/\b(another|brand new|also add|plan an event)\b/.test(normalized)
+    ) {
+      intent = "edit_item";
+    }
+  }
+
   const parent = normalized.match(/\bunder\s+(.+?)(?::|,| add | - |$)/);
   const doneHint = normalized
     .replace(/\b(done with|finished|mark (as )?done|complete|checked off|tick off)\b/g, "")
@@ -518,6 +564,8 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
     prefs,
     confirm,
     cancel,
+    renameTo,
+    targetHint,
     notes,
     debug: {
       at: new Date().toISOString(),

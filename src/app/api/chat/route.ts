@@ -42,15 +42,17 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "not found" }, { status: 404 });
   const extra = dueReminders(user);
   if (extra.length) {
+    const extraIds = new Set(user.remindedEventIds);
+    for (const e of user.events) {
+      if (extra.some((m) => m.text.includes(`*${e.title}*`))) {
+        extraIds.add(e.id);
+        extraIds.add(`pre:${e.id}`);
+      }
+    }
     const saved = await upsertUser({
       ...user,
       messages: [...user.messages, ...extra],
-      remindedEventIds: [
-        ...user.remindedEventIds,
-        ...user.events
-          .filter((e) => extra.some((m) => m.text.includes(`"${e.title}"`)))
-          .map((e) => e.id),
-      ],
+      remindedEventIds: [...extraIds],
       updatedAt: new Date().toISOString(),
     });
     return NextResponse.json({ user: saved, reminders: extra });

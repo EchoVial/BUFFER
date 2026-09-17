@@ -2,7 +2,7 @@ export type EventKind = "work" | "social" | "personal" | "health" | "other";
 export type TodoPriority = "p0" | "p1" | "p2" | "p3";
 export type MessageStatus = "sent" | "delivered" | "read";
 export type MessageRole = "user" | "bot" | "system";
-export type DraftType = "event" | "todo" | "none";
+export type DraftType = "event" | "todo" | "none" | "edit" | "reshuffle";
 
 export interface UserSettings {
   wakeTime: string;
@@ -27,6 +27,7 @@ export interface CalendarEvent {
   durationMinutes: number;
   notes?: string;
   flexible: boolean;
+  starred?: boolean;
   createdAt: string;
 }
 
@@ -40,6 +41,9 @@ export interface TodoItem {
   dueDate?: string;
   done: boolean;
   kind: EventKind;
+  starred?: boolean;
+  plannedStart?: string;
+  plannedDate?: string;
   createdAt: string;
 }
 
@@ -47,7 +51,7 @@ export interface ReplyButton {
   id: string;
   title: string;
   payload?: string;
-  action?: "reply" | "google-cal" | "ics" | "connect-feed";
+  action?: "reply" | "google-cal" | "ics" | "connect-feed" | "outlook-cal";
 }
 
 export interface ListRow {
@@ -121,12 +125,30 @@ export interface DayStats {
   workCap: number;
 }
 
+export interface EditProposal {
+  kind: "event" | "todo";
+  id: string;
+  title: string;
+  summary: string;
+  eventPatch?: Partial<CalendarEvent>;
+  todoPatch?: Partial<TodoItem>;
+  remove?: boolean;
+}
+
+export interface ReshuffleProposal {
+  eventId: string;
+  todos: Array<{ id: string; plannedDate: string; plannedStart: string }>;
+  summary: string;
+}
+
 export interface ConversationDraft {
   type: DraftType;
   event?: Partial<CalendarEvent> & { raw?: string };
   todo?: Partial<TodoItem> & { raw?: string };
   missing: string[];
   proposal?: Extract<MessageCard, { type: "proposal" }>;
+  edit?: EditProposal;
+  reshuffle?: ReshuffleProposal;
 }
 
 export interface UserRecord {
@@ -142,6 +164,7 @@ export interface UserRecord {
   messages: ChatMessage[];
   draft: ConversationDraft;
   remindedEventIds: string[];
+  lastLockedEventId?: string;
   calendarToken?: string;
   calendarConnectedAt?: string;
   calendarConnectedVia?: string;
@@ -186,7 +209,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
 };
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
-  botDisplayName: "Balance",
+  botDisplayName: "Buffer",
   botAbout:
     "Your work-life wingman. Plans events, stacks to-dos, flags overlaps, and protects social time.",
   defaultUserSettings: DEFAULT_USER_SETTINGS,

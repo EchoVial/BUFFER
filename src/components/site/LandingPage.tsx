@@ -29,7 +29,7 @@ export function LandingPage() {
   return (
     <div className="min-h-[100dvh] bg-[#0b141a] text-[#e9edef]">
       <header className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
-        <p className="text-[17px] font-semibold tracking-tight">Balance</p>
+        <p className="text-[17px] font-semibold tracking-tight">Buffer</p>
         <nav className="flex items-center gap-3 text-[13px]">
           <Link href="/chat" className="rounded-full bg-[#00a884] px-4 py-2 font-semibold text-[#111b21]">
             Open chat
@@ -51,7 +51,7 @@ export function LandingPage() {
             </h1>
             <p className="mt-4 max-w-xl text-[16px] leading-7 text-[#aebac1]">
               {settings?.botAbout ||
-                "Balance plans events, stacks to-dos, and protects social time. This site publishes a live calendar feed each OS can subscribe to — websites still can’t silently write into the built-in calendar."}
+                "Buffer plans events, stacks to-dos, and protects social time. This site publishes a live calendar feed each OS can subscribe to — websites still can’t silently write into the built-in calendar."}
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <Link
@@ -97,7 +97,7 @@ export function LandingPage() {
             <div>
               <h2 className="text-xl font-semibold">Calendars for each OS</h2>
               <p className="mt-1 max-w-2xl text-[14px] leading-6 text-[#8696a0]">
-                After you say your name in chat, Balance mints a private ICS feed. Google Calendar,
+                After you say your name in chat, Buffer mints a private ICS feed. Google Calendar,
                 Apple Calendar, Android (via Google), and Outlook all know how to subscribe to that
                 format. New locked events appear on the next refresh.
               </p>
@@ -132,7 +132,7 @@ export function LandingPage() {
                 <p className="mt-4 rounded-xl bg-[#00a884]/15 px-4 py-3 text-[14px] text-[#00a884]">
                   Connected
                   {user.calendarConnectedVia ? ` via ${user.calendarConnectedVia}` : ""}. Open chat to
-                  see Balance&apos;s confirmation. Locked events will land on the next calendar refresh.
+                  see Buffer&apos;s confirmation. Locked events will land on the next calendar refresh.
                 </p>
               ) : null}
             </>
@@ -167,7 +167,7 @@ export function LandingPage() {
           <Note
             icon={<CalendarDays className="size-4" />}
             title="Live, not silent write"
-            body="OS vendors block websites from injecting events without you. Subscribe once; Balance updates the feed when you lock plans in chat."
+            body="OS vendors block websites from injecting events without you. Subscribe once; Buffer updates the feed when you lock plans in chat."
           />
           <Note
             icon={<MessageCircle className="size-4" />}

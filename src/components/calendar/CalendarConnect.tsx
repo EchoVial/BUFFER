@@ -8,6 +8,9 @@ import {
   googleSubscribeUrl,
   icsHttpUrl,
   icsWebcalUrl,
+  isPublicHttpsOrigin,
+  outlookEventUrl,
+  outlookLiveSubscribeUrl,
   outlookSubscribeUrl,
   platformLabel,
   userFeedIcs,
@@ -45,8 +48,12 @@ export function CalendarConnect({
   const httpsUrl = icsHttpUrl(origin, token);
   const webcal = icsWebcalUrl(origin, token);
   const google = googleSubscribeUrl(origin, token);
-  const outlook = outlookSubscribeUrl(origin, token, `Balance — ${user.name}`);
+  const calName = `Buffer — ${user.name}`;
+  const outlook = outlookSubscribeUrl(origin, token, calName);
+  const outlookLive = outlookLiveSubscribeUrl(origin, token, calName);
+  const lastEvent = user.events[user.events.length - 1];
   const name = platformLabel(platform);
+  const publicHttps = isPublicHttpsOrigin(origin);
 
   async function copyFeed() {
     try {
@@ -67,9 +74,31 @@ export function CalendarConnect({
   }
 
   function snapshot() {
-    downloadIcs(`balance-${user.nameKey}`, userFeedIcs(user));
+    downloadIcs(`buffer-${user.nameKey}`, userFeedIcs(user));
     setHint("Downloaded. Import the file in your calendar app — that's a snapshot, not a live subscribe.");
     onConnected?.("snapshot");
+  }
+
+  function openOutlook() {
+    const latest = lastEvent;
+    if (publicHttps) {
+      window.open(outlook, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => {
+        window.open(outlookLive, "_blank", "noopener,noreferrer");
+      }, 400);
+      setHint("Opened Outlook’s add-from-web screen. Sign in if asked, then confirm Subscribe.");
+      onConnected?.("outlook");
+      return;
+    }
+    void copyFeed();
+    snapshot();
+    if (latest) {
+      window.open(outlookEventUrl(latest), "_blank", "noopener,noreferrer");
+    }
+    setHint(
+      "Outlook can’t subscribe to a local http address. I copied the feed URL, downloaded an .ics, and opened Outlook to add your latest event. After Buffer is on https, tap Outlook again to subscribe to the live feed.",
+    );
+    onConnected?.("outlook");
   }
 
   const primary =
@@ -78,7 +107,7 @@ export function CalendarConnect({
       : platform === "android"
         ? { label: "Add in Google Calendar", href: google }
         : platform === "windows"
-          ? { label: "Add in Outlook", href: outlook }
+          ? { label: "Add in Outlook", onClick: openOutlook }
           : { label: "Add in Google Calendar", href: google };
 
   return (
@@ -89,7 +118,7 @@ export function CalendarConnect({
         </p>
         <p className="mt-1 text-[13px] leading-5 text-[#8696a0]">
           Browsers can’t silently write into Google, Apple, or Android calendars. Subscribe to your
-          live Balance feed instead — locked events and open to-dos refresh about every 15 minutes.
+          live Buffer feed instead — locked events and open to-dos refresh about every 15 minutes.
         </p>
       </div>
 
@@ -100,7 +129,11 @@ export function CalendarConnect({
           rel="noopener noreferrer"
           onClick={() => {
             const via = platform === "windows" ? "outlook" : "google";
-            setHint(`Opened ${via === "outlook" ? "Outlook" : "Google Calendar"} to subscribe. You're connected once you confirm Add.`);
+            if (via === "outlook") {
+              openOutlook();
+              return;
+            }
+            setHint(`Opened Google Calendar to subscribe. You're connected once you confirm Add.`);
             onConnected?.(via);
           }}
           className="flex w-full items-center justify-center rounded-full bg-[#00a884] px-4 py-3 text-[15px] font-semibold text-[#111b21]"
@@ -135,15 +168,18 @@ export function CalendarConnect({
           <p className="text-[14px] font-medium text-[#e9edef]">Apple Calendar</p>
           <p className="text-[12px] text-[#8696a0]">iPhone, iPad, and Mac via webcal</p>
         </button>
-        <OsLink
-          href={outlook}
-          title="Outlook"
-          detail="Outlook on the web and Windows"
-          onClick={() => {
-            setHint("Opened Outlook to subscribe. You're connected once you confirm Add.");
-            onConnected?.("outlook");
-          }}
-        />
+        <button
+          type="button"
+          onClick={openOutlook}
+          className="rounded-xl border border-white/10 bg-[#202c33] px-3 py-3 text-left hover:bg-white/5"
+        >
+          <p className="text-[14px] font-medium text-[#e9edef]">Outlook</p>
+          <p className="text-[12px] text-[#8696a0]">
+            {publicHttps
+              ? "Outlook.com and Microsoft 365 subscribe-from-web"
+              : "Adds the latest event + .ics (live subscribe needs https)"}
+          </p>
+        </button>
         <button
           type="button"
           onClick={snapshot}
@@ -173,7 +209,8 @@ export function CalendarConnect({
         </button>
         <p className="mt-2 text-[12px] leading-5 text-[#8696a0]">
           Anyone with this URL can read your schedule. Don’t post it publicly. On Android you can
-          also paste it in Google Calendar → Settings → Add calendar → From URL.
+          also paste it in Google Calendar → Settings → Add calendar → From URL. In Outlook: Add
+          calendar → Subscribe from web → paste this HTTPS .ics URL.
         </p>
       </div>
 

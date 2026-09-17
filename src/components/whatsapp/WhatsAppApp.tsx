@@ -26,7 +26,7 @@ import {
 import { AppSettings, ChatMessage, ReplyButton, UserRecord } from "@/lib/types";
 import { formatMessageTime } from "@/lib/time";
 import { formatMessageDay } from "@/lib/day-label";
-import { downloadIcs, eventToIcs, googleCalendarUrl } from "@/lib/calendar";
+import { downloadIcs, eventToIcs, googleCalendarUrl, outlookEventUrl } from "@/lib/calendar";
 import { CalendarConnect } from "@/components/calendar/CalendarConnect";
 import { MessageCards } from "./cards";
 import { WhatsAppText } from "./wa-text";
@@ -72,7 +72,7 @@ export function WhatsAppApp() {
       {
         id: "boot-1",
         role: "bot",
-        text: "hey — i'm Balance, your work-life wingman in a WhatsApp skin.\n\nbefore i remember anything: what should i call you? first name is perfect.",
+        text: "hey — i'm Buffer, your work-life wingman in a WhatsApp skin.\n\nbefore i remember anything: what should i call you? first name is perfect.",
         createdAt: new Date().toISOString(),
         status: "delivered",
       },
@@ -161,7 +161,7 @@ export function WhatsAppApp() {
     () => (awaitingName ? bootMsgs : user?.messages || []),
     [awaitingName, bootMsgs, user?.messages],
   );
-  const botName = settings?.botDisplayName || "Balance";
+  const botName = settings?.botDisplayName || "Buffer";
 
   async function submitName(name: string) {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -339,6 +339,14 @@ export function WhatsAppApp() {
       downloadIcs(event.title, eventToIcs(event, tz));
       return;
     }
+    if (button.action === "outlook-cal") {
+      if (!event) {
+        void send("add to calendar");
+        return;
+      }
+      window.open(outlookEventUrl(event), "_blank", "noopener,noreferrer");
+      return;
+    }
     if (button.action === "connect-feed") {
       setCalOpen(true);
       return;
@@ -362,7 +370,7 @@ export function WhatsAppApp() {
             <div className="min-w-0 flex-1">
               <p className="truncate text-[15px] font-medium">{user?.name || "Not signed in"}</p>
               <p className="truncate text-[12px] text-[#8696a0]">
-                {awaitingName ? "Balance wants your name" : "Work-life chat is live"}
+                {awaitingName ? "Buffer wants your name" : "Work-life chat is live"}
               </p>
             </div>
             <Link
@@ -449,7 +457,7 @@ export function WhatsAppApp() {
                   {(user?.name || "Y").slice(0, 1)}
                 </div>
                 <div>
-                  <p>Today&apos;s balance</p>
+                  <p>Today&apos;s buffer</p>
                   <p className="text-[13px] text-[#8696a0]">
                     {user
                       ? `Social goal ${Math.round(user.settings.socialMinutesPerDay / 60)}h · work cap ${Math.round(user.settings.maxWorkMinutesPerDay / 60)}h`
@@ -461,7 +469,7 @@ export function WhatsAppApp() {
                 Recent
               </p>
               <p className="text-[#8696a0]">
-                Balance · tap the chat and say &quot;how am i doing&quot; for a burnout check.
+                Buffer · tap the chat and say &quot;how am i doing&quot; for a burnout check.
               </p>
             </div>
           )}
@@ -483,7 +491,7 @@ export function WhatsAppApp() {
                     </div>
                   </div>
                 ))}
-              {!user?.events.length && <p>No events yet. Text Balance to plan one.</p>}
+              {!user?.events.length && <p>No events yet. Text Buffer to plan one.</p>}
             </div>
           )}
         </aside>
@@ -626,7 +634,10 @@ export function WhatsAppApp() {
           )}
 
           <form
-            onSubmit={onSubmit}
+            onSubmit={(e) => {
+              e.preventDefault();
+              void send();
+            }}
             className="relative z-30 flex items-end gap-2 bg-[#202c33] px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-4"
           >
             <div className="relative">
@@ -720,10 +731,11 @@ export function WhatsAppApp() {
                 resizeComposer();
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void send();
-                }
+                if (e.key !== "Enter") return;
+                if (e.shiftKey || e.nativeEvent.isComposing) return;
+                e.preventDefault();
+                e.stopPropagation();
+                void send();
               }}
               placeholder={
                 awaitingName ? "Type your name, then send" : "Type a message. Shift+Enter for a new line."

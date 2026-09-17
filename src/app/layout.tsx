@@ -11,9 +11,9 @@ const googleSans = Google_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Balance — chat that syncs to your calendar",
+  title: "Buffer — chat that syncs to your calendar",
   description:
-    "WhatsApp-style work-life chat. Subscribe Google, Apple, Android, or Outlook to a live Balance calendar feed.",
+    "WhatsApp-style work-life chat. Subscribe Google, Apple, Android, or Outlook to a live Buffer calendar feed.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

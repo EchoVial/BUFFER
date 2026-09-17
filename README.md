@@ -1,8 +1,8 @@
-# Balance
+# Buffer
 
 A website for work-life chat that actually lands on the calendar your OS already uses.
 
-Text **Balance** like a friend (`gym tmrw 7pm`, `i want 2 hrs of social every day`, `rundown`). Locked events publish to a private ICS feed. Google Calendar, Apple Calendar, Android (via Google), and Outlook subscribe to that feed — browsers are not allowed to write silently into those apps.
+Text **Buffer** like a friend (`gym tmrw 7pm`, `i want 2 hrs of social every day`, `rundown`). Locked events publish to a private ICS feed. Google Calendar, Apple Calendar, Android (via Google), and Outlook subscribe to that feed — browsers are not allowed to write silently into those apps.
 
 ## Run locally
 
@@ -27,10 +27,10 @@ Open [http://localhost:43177](http://localhost:43177).
    | --- | --- |
    | **Google / Android** | Opens Google Calendar with your live feed (`cid=`). You can also paste the HTTPS URL under Settings → Add calendar → From URL. |
    | **iPhone, iPad, Mac** | Opens `webcal://…` so Calendar.app can subscribe. |
-   | **Windows / Outlook** | Opens Outlook on the web “add from web”. |
+   | **Windows / Outlook** | On a public **https** site, opens Outlook’s subscribe-from-web with a `.ics` feed. Locally, Outlook cannot fetch `localhost`, so Buffer copies the URL, downloads `.ics`, and opens an Outlook event compose for the latest locked item. You can also paste the feed in Outlook → Add calendar → Subscribe from web. |
    | **Any** | Copy the private ICS URL, or download a one-off `.ics` snapshot. |
 
-The feed is `/api/calendar/<secret-token>`. Treat it like a password: anyone with the URL can read your schedule. Calendar apps typically refresh every 15 minutes.
+The feed is `/api/calendar/<secret-token>/feed.ics`. Treat it like a password: anyone with the URL can read your schedule. Calendar apps typically refresh every 15 minutes.
 
 A website still cannot inject events into Google/Apple/Android without that subscribe (or a one-shot template / file). That is an OS rule, not a missing feature.
 

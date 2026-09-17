@@ -67,7 +67,7 @@ export function WhatsAppListSheet({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-white/20" />
-        <p className="px-4 pt-3 text-[13px] text-[#8696a0]">Balance</p>
+        <p className="px-4 pt-3 text-[13px] text-[#8696a0]">Buffer</p>
         <p className="px-4 pb-2 text-[16px] font-medium">{list.button}</p>
         {list.sections.map((section) => (
           <div key={section.title} className="border-t border-white/10">

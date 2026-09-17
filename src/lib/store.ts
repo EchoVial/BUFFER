@@ -94,14 +94,22 @@ function writeLocal(store: AppStore) {
   }
 }
 
+function migrateStore(store: AppStore): AppStore {
+  if (store.settings.botDisplayName === "Balance") {
+    store.settings.botDisplayName = DEFAULT_APP_SETTINGS.botDisplayName;
+    store.settings.botAbout = DEFAULT_APP_SETTINGS.botAbout;
+  }
+  return store;
+}
+
 async function hydrate(): Promise<AppStore> {
   const fromKv = await kvGet();
-  if (fromKv) return fromKv;
+  if (fromKv) return migrateStore(fromKv);
   const disk = loadFromDisk();
-  if (disk) return disk;
+  if (disk) return migrateStore(disk);
   try {
     const tmp = readFileSync("/tmp/balance-store.json", "utf8");
-    return JSON.parse(tmp) as AppStore;
+    return migrateStore(JSON.parse(tmp) as AppStore);
   } catch {
     return emptyStore();
   }
@@ -109,7 +117,7 @@ async function hydrate(): Promise<AppStore> {
 
 export async function getStore(): Promise<AppStore> {
   const g = globalThis as GlobalWithStore;
-  if (g.__balanceStore) return g.__balanceStore;
+  if (g.__balanceStore) return migrateStore(g.__balanceStore);
   if (!g.__balanceStoreLoad) {
     g.__balanceStoreLoad = hydrate().then((store) => {
       g.__balanceStore = store;

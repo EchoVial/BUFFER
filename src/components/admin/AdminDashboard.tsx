@@ -121,7 +121,7 @@ export function AdminDashboard() {
       <div className="flex min-h-[100dvh] items-center justify-center bg-zinc-950 p-4 text-zinc-100">
         <Card className="w-full max-w-md border-zinc-800 bg-zinc-900">
           <CardHeader>
-            <CardTitle>Balance admin</CardTitle>
+            <CardTitle>Buffer admin</CardTitle>
             <CardDescription>
               Debug users, chats, and default life-balance parameters.
               Local password is <code>balance123</code>. On Vercel, use the{" "}
@@ -159,7 +159,7 @@ export function AdminDashboard() {
     <div className="min-h-[100dvh] bg-zinc-950 text-zinc-100">
       <header className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
         <div>
-          <p className="text-sm text-zinc-400">Balance console</p>
+          <p className="text-sm text-zinc-400">Buffer console</p>
           <h1 className="text-lg font-semibold">Users, parameters, NLP debug</h1>
         </div>
         <div className="flex gap-2">

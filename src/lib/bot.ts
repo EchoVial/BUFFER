@@ -10,6 +10,7 @@ import {
 } from "./types";
 import { uid } from "./ids";
 import { parseMessage } from "./nlp";
+import { findNamedItem } from "./match";
 import { buildDayPlan, planLines, proposeEvent, statsLine } from "./scheduler";
 import {
   dateISO,
@@ -54,7 +55,7 @@ const PROPOSAL_BUTTONS: ReplyButton[] = [
 const CALENDAR_BUTTONS: ReplyButton[] = [
   { id: "connect", title: "Connect calendar", action: "connect-feed" },
   { id: "gcal", title: "Google (this event)", action: "google-cal" },
-  { id: "ics", title: "Download .ics", action: "ics" },
+  { id: "outlook", title: "Outlook (this event)", action: "outlook-cal" },
 ];
 
 const KIND_BUTTONS: ReplyButton[] = [
@@ -91,7 +92,7 @@ const START_LIST: InteractiveList = {
       ],
     },
     {
-      title: "Balance",
+      title: "Buffer",
       rows: [
         {
           id: "social",
@@ -133,7 +134,7 @@ function userText(text: string): ChatMessage {
 function greeting(name: string): ChatMessage[] {
   return [
     botText(
-      `hey ${name.split(" ")[0]} 👋 i'm *Balance*. think of me as the friend who actually remembers your calendar *and* tells you to leave the laptop.\n\ntext me like you text anyone — gym tmrw 7pm, i want 2 hrs of social every day, *rundown*, remind me to send the deck p0.\n\nor tap *See options* below, WhatsApp-style.`,
+      `hey ${name.split(" ")[0]} 👋 i'm *Buffer*. think of me as the friend who actually remembers your calendar *and* tells you to leave the laptop.\n\ntext me like you text anyone — gym tmrw 7pm, i want 2 hrs of social every day, *rundown*, remind me to send the deck p0.\n\nor tap *See options* below, WhatsApp-style.`,
       { list: START_LIST },
     ),
   ];
@@ -141,7 +142,7 @@ function greeting(name: string): ChatMessage[] {
 
 function optionsMessage(): ChatMessage {
   return botText(
-    "here's what else you can do — *Plan* and *Balance*. tap *See options*, or just text me.",
+    "here's what else you can do — *Plan* and *Buffer*. tap *See options*, or just text me.",
     { list: START_LIST },
   );
 }
@@ -181,6 +182,8 @@ function helpText(): string {
     "• buy milk",
     "• call jordan",
     "• dump the outline 30m",
+    "• star gym / star the deck",
+    "• move gym to 8pm",
     "when you drop an event i'll ask the missing bits, then show how to-dos slide around. tap *Lock it* when the plan looks right — after lock or cancel, scheduling stops until you bring it up again.",
   ].join("\n");
 }
@@ -191,7 +194,7 @@ function renderTodos(user: UserRecord): string[] {
   const line = (t: TodoItem, pad: string) => {
     const mark = t.done ? "✓" : "○";
     const due = t.dueDate ? ` · due ${prettyDate(t.dueDate)}` : "";
-    return `${pad}${mark} *${t.priority.toUpperCase()}* ${t.title} (${durationLabel(t.estimatedMinutes)})${due}`;
+    return `${pad}${mark}${t.starred ? " ★" : ""} *${t.priority.toUpperCase()}* ${t.title} (${durationLabel(t.estimatedMinutes)})${due}`;
   };
   const out: string[] = [];
   const walk = (t: TodoItem, depth: number) => {
@@ -260,6 +263,7 @@ function finalizeEvent(ev: NonNullable<ConversationDraft["event"]>): CalendarEve
     start: ev.start!,
     durationMinutes: ev.durationMinutes || 60,
     flexible: ev.kind !== "work" ? true : false,
+    starred: ev.starred,
     createdAt: new Date().toISOString(),
   };
 }
@@ -273,6 +277,50 @@ function askMessage(missing: string[], ev: ConversationDraft["event"]): ChatMess
 function findTodo(user: UserRecord, hint: string): TodoItem | undefined {
   const h = hint.toLowerCase();
   return user.todos.find((t) => t.title.toLowerCase().includes(h) && h.length > 1);
+}
+
+const CHANGE_BUTTONS: ReplyButton[] = [
+  { id: "apply", title: "Make the change", payload: "make the change" },
+  { id: "leave", title: "Leave it", payload: "leave it" },
+];
+
+function lockFollowupButtons(connected: boolean): ReplyButton[] {
+  return [
+    { id: "reshuffle", title: "Move my tasks", payload: "reshuffle around this event" },
+    { id: "star", title: "Star it", payload: "star this event" },
+    connected
+      ? { id: "options", title: "See options", payload: "give options" }
+      : { id: "connect", title: "Connect calendar", action: "connect-feed" },
+  ];
+}
+
+function describeEvent(ev: CalendarEvent): string {
+  return `*${ev.starred ? "★ " : ""}${ev.title}* · ${prettyDate(ev.date)} ${formatClock(ev.start)}`;
+}
+
+function applyStar(
+  next: UserRecord,
+  hit: { kind: "event" | "todo"; id: string },
+  starred: boolean,
+): string {
+  if (hit.kind === "event") {
+    next.events = next.events.map((e) => (e.id === hit.id ? { ...e, starred } : e));
+    const ev = next.events.find((e) => e.id === hit.id);
+    return ev
+      ? starred
+        ? `starred ${describeEvent(ev)}. i'll nudge you about this *before* other stuff so you can wrap it first.`
+        : `took the star off *${ev.title}*.`
+      : "couldn't find that event.";
+  }
+  next.todos = next.todos.map((t) =>
+    t.id === hit.id ? { ...t, starred, priority: starred ? "p0" : t.priority } : t,
+  );
+  const todo = next.todos.find((t) => t.id === hit.id);
+  return todo
+    ? starred
+      ? `starred *${todo.title}* (now P0). i'll prompt you to knock it out before other events land.`
+      : `took the star off *${todo.title}*.`
+    : "couldn't find that to-do.";
 }
 
 export function processTurn(
@@ -300,6 +348,49 @@ export function processTurn(
 
   if (parsed.intent === "options") {
     push(optionsMessage());
+  } else if (next.draft.type === "edit" && parsed.intent === "confirm" && next.draft.edit) {
+    const edit = next.draft.edit;
+    if (edit.kind === "event") {
+      if (edit.remove) {
+        next.events = next.events.filter((e) => e.id !== edit.id);
+      } else {
+        next.events = next.events.map((e) =>
+          e.id === edit.id ? { ...e, ...edit.eventPatch } : e,
+        );
+      }
+    } else if (edit.remove) {
+      next.todos = next.todos.filter((t) => t.id !== edit.id);
+    } else {
+      next.todos = next.todos.map((t) =>
+        t.id === edit.id ? { ...t, ...edit.todoPatch } : t,
+      );
+    }
+    next.draft = { type: "none", missing: [] };
+    push(botText(`done. ${edit.summary}`));
+  } else if (next.draft.type === "edit" && parsed.intent === "cancel") {
+    next.draft = { type: "none", missing: [] };
+    push(botText("left it as-is."));
+  } else if (next.draft.type === "reshuffle" && parsed.intent === "confirm" && next.draft.reshuffle) {
+    const rs = next.draft.reshuffle;
+    next.todos = next.todos.map((t) => {
+      const patch = rs.todos.find((p) => p.id === t.id);
+      return patch ? { ...t, plannedDate: patch.plannedDate, plannedStart: patch.plannedStart } : t;
+    });
+    next.draft = { type: "none", missing: [] };
+    const ev = next.events.find((e) => e.id === rs.eventId);
+    const plan = buildDayPlan(next, ev?.date || dateISO(nowInZone(next.settings.timezone)));
+    push(
+      botText(`tasks now wrap around *${ev?.title || "that event"}*. starred work stays first.`, {
+        type: "schedule",
+        date: plan.date,
+        lines: planLines(plan),
+        warnings: plan.warnings,
+        stats: plan.stats,
+      }),
+    );
+  } else if (next.draft.type === "reshuffle" && parsed.intent === "cancel") {
+    next.draft = { type: "none", missing: [] };
+    push(botText("left the task order as-is."));
   } else if (parsed.intent === "calendar_connected") {
     const via =
       parsed.normalized.match(
@@ -309,7 +400,7 @@ export function processTurn(
     next.calendarConnectedVia = via;
     push(
       botText(
-        `you're connected. *${connectedLabel(via)}* is hooked up to your live Balance feed.\nlocked events will show up on the next refresh (about 15 minutes).\n\nyou're all set — i won't keep scheduling until you bring something up.`,
+        `you're connected. *${connectedLabel(via)}* is hooked up to your live Buffer feed.\nlocked events will show up on the next refresh (about 15 minutes).\n\nyou're all set — i won't keep scheduling until you bring something up.`,
       ),
     );
   } else if (next.draft.type === "event" && parsed.intent === "cancel") {
@@ -346,16 +437,15 @@ export function processTurn(
     });
     next.events = [...next.events, ev];
     next.draft = { type: "none", missing: [] };
+    next.lastLockedEventId = ev.id;
     const connected = Boolean(next.calendarConnectedAt);
     push(
       botText(
-        `locked. *${ev.title}* is on ${prettyDate(ev.date)} at ${formatClock(ev.start)}.\ni'll nudge you here ${next.settings.reminderLeadMinutes} min before.\n\nscheduling's done for this one${connected ? "." : " — tap *Connect calendar* if this device isn't subscribed yet."} say *give options* or text me when you want to plan something else.`,
-        connected
-          ? undefined
-          : {
-              buttons: CALENDAR_BUTTONS,
-              calendarEventId: ev.id,
-            },
+        `locked in. *${ev.title}* is on ${prettyDate(ev.date)} at ${formatClock(ev.start)}.\ni'll nudge you here ${next.settings.reminderLeadMinutes} min before${ev.kind === "work" ? " (work)" : ""}.\n\nwant me to *move your tasks* around this, or *star* it so i prompt you to finish it before other stuff?`,
+        {
+          buttons: lockFollowupButtons(connected),
+          calendarEventId: ev.id,
+        },
       ),
     );
   } else if (
@@ -402,6 +492,164 @@ export function processTurn(
     );
   } else if (parsed.intent === "cancel") {
     push(botText("nothing to cancel — we weren't scheduling. *give options* if you want the menu."));
+  } else if (parsed.intent === "star" || parsed.intent === "unstar") {
+    const starred = parsed.intent === "star";
+    const thisOne = /\bthis (event|task|to-?do|one)\b/.test(parsed.normalized);
+    let hit: { kind: "event" | "todo"; id: string } | undefined =
+      thisOne && next.lastLockedEventId
+        ? { kind: "event", id: next.lastLockedEventId }
+        : undefined;
+    if (!hit) {
+      const named = findNamedItem(next, parsed.targetHint || parsed.event.title || text);
+      if (named) hit = { kind: named.kind, id: named.kind === "event" ? named.event.id : named.todo.id };
+    }
+    if (!hit && next.lastLockedEventId) {
+      hit = { kind: "event", id: next.lastLockedEventId };
+    }
+    if (!hit) {
+      push(botText("which one should i star? name the event or to-do, like *star gym* or *star the deck*."));
+    } else {
+      push(botText(applyStar(next, hit, starred)));
+    }
+  } else if (parsed.intent === "reshuffle") {
+    const ev =
+      next.events.find((e) => e.id === next.lastLockedEventId) ||
+      next.events[next.events.length - 1];
+    if (!ev) {
+      push(botText("lock an event first, then i can slide to-dos around it."));
+    } else {
+      const plan = buildDayPlan(next, ev.date);
+      const todos = plan.blocks
+        .filter((b) => b.kind === "todo" && b.id)
+        .map((b) => ({
+          id: b.id as string,
+          plannedDate: ev.date,
+          plannedStart: minutesToHM(b.startMin),
+        }));
+      next.draft = {
+        type: "reshuffle",
+        missing: [],
+        reshuffle: {
+          eventId: ev.id,
+          todos,
+          summary: `slide ${todos.length} task${todos.length === 1 ? "" : "s"} around ${ev.title}`,
+        },
+      };
+      push(
+        botText(
+          `here's how to-dos would wrap around *${ev.title}* at ${formatClock(ev.start)}. tap *Make the change* to save the new order.`,
+          {
+            card: {
+              type: "schedule",
+              date: ev.date,
+              lines: planLines(plan),
+              warnings: plan.warnings,
+              stats: plan.stats,
+            },
+            buttons: CHANGE_BUTTONS,
+          },
+        ),
+      );
+    }
+  } else if (parsed.intent === "edit_item") {
+    const named =
+      findNamedItem(next, parsed.targetHint || "") ||
+      findNamedItem(next, parsed.event.title || text);
+    if (!named) {
+      push(botText("i couldn't tell which event or to-do you meant. name it like it shows on the rundown."));
+    } else if (named.kind === "event") {
+      const patch: Partial<CalendarEvent> = {};
+      const bits: string[] = [];
+      if (parsed.renameTo) {
+        const title = parsed.renameTo.replace(/^(to)\s+/, "");
+        patch.title = title.charAt(0).toUpperCase() + title.slice(1);
+        bits.push(`rename to *${patch.title}*`);
+      }
+      if (parsed.event.date && parsed.event.date !== named.event.date) {
+        patch.date = parsed.event.date;
+        bits.push(`move to ${prettyDate(patch.date)}`);
+      }
+      if (parsed.event.start && parsed.event.start !== named.event.start) {
+        patch.start = parsed.event.start;
+        bits.push(`time ${formatClock(patch.start)}`);
+      }
+      if (parsed.event.durationMinutes && parsed.event.durationMinutes !== named.event.durationMinutes) {
+        patch.durationMinutes = parsed.event.durationMinutes;
+        bits.push(`length ${durationLabel(patch.durationMinutes)}`);
+      }
+      if (parsed.event.kind && parsed.event.kind !== named.event.kind) {
+        patch.kind = parsed.event.kind;
+        bits.push(`kind ${patch.kind}`);
+      }
+      if (!bits.length) {
+        push(botText(`that's *${named.event.title}* already. say what to change — time, day, length, or *star ${named.event.title}*.`));
+      } else {
+        const summary = bits.join(", ");
+        next.draft = {
+          type: "edit",
+          missing: [],
+          edit: {
+            kind: "event",
+            id: named.event.id,
+            title: named.event.title,
+            summary: `update *${named.event.title}*: ${summary}`,
+            eventPatch: patch,
+          },
+        };
+        push(
+          botText(
+            `found ${describeEvent(named.event)}.\ni can ${summary}. tap *Make the change* to apply it.`,
+            { buttons: CHANGE_BUTTONS, calendarEventId: named.event.id },
+          ),
+        );
+      }
+    } else {
+      const patch: Partial<TodoItem> = {};
+      const bits: string[] = [];
+      if (parsed.renameTo) {
+        const title = parsed.renameTo.replace(/^(to)\s+/, "");
+        patch.title = title.charAt(0).toUpperCase() + title.slice(1);
+        bits.push(`rename to *${patch.title}*`);
+      }
+      if (parsed.event.date && parsed.event.date !== named.todo.dueDate) {
+        patch.dueDate = parsed.event.date;
+        bits.push(`due ${prettyDate(patch.dueDate)}`);
+      }
+      if (parsed.todo.estimatedMinutes && parsed.todo.estimatedMinutes !== named.todo.estimatedMinutes) {
+        patch.estimatedMinutes = parsed.todo.estimatedMinutes;
+        bits.push(`estimate ${durationLabel(patch.estimatedMinutes)}`);
+      }
+      if (parsed.todo.priority && parsed.todo.priority !== named.todo.priority) {
+        patch.priority = parsed.todo.priority;
+        bits.push(`priority ${patch.priority.toUpperCase()}`);
+      }
+      if (parsed.todo.kind && parsed.todo.kind !== named.todo.kind) {
+        patch.kind = parsed.todo.kind;
+        bits.push(`kind ${patch.kind}`);
+      }
+      if (!bits.length) {
+        push(botText(`that's to-do *${named.todo.title}*. say the change — due day, time estimate, or *star ${named.todo.title}*.`));
+      } else {
+        const summary = bits.join(", ");
+        next.draft = {
+          type: "edit",
+          missing: [],
+          edit: {
+            kind: "todo",
+            id: named.todo.id,
+            title: named.todo.title,
+            summary: `update *${named.todo.title}*: ${summary}`,
+            todoPatch: patch,
+          },
+        };
+        push(
+          botText(
+            `found to-do *${named.todo.starred ? "★ " : ""}${named.todo.title}*.\ni can ${summary}. tap *Make the change* to apply it.`,
+            { buttons: CHANGE_BUTTONS },
+          ),
+        );
+      }
+    }
   } else if (parsed.intent === "set_pref") {
     next.settings = { ...next.settings, ...parsed.prefs };
     const bits = Object.entries(parsed.prefs)
@@ -579,7 +827,7 @@ export function processTurn(
       botText(
         over || underSocial
           ? `workaholic check: ${over ? "you're over the work cap. " : ""}${underSocial ? "social time is under goal. " : ""}protect the non-work blocks like they're meetings with someone you like.`
-          : "balance looks decent today. don't sneak in 'just one more' task.",
+          : "you're in decent shape today. don't sneak in 'just one more' task.",
         {
           type: "schedule",
           date: today,
@@ -629,18 +877,43 @@ export function dueReminders(user: UserRecord): ChatMessage[] {
   const today = dateISO(now);
   const minutesNow = now.getHours() * 60 + now.getMinutes();
   const lead = user.settings.reminderLeadMinutes;
-  const due = user.events.filter((e) => {
+  const out: ChatMessage[] = [];
+  const starredTodos = user.todos.filter((t) => t.starred && !t.done);
+  const upcoming = user.events.filter((e) => {
     if (e.date !== today) return false;
-    if (user.remindedEventIds.includes(e.id)) return false;
     const start = Number(e.start.slice(0, 2)) * 60 + Number(e.start.slice(3, 5));
     const delta = start - minutesNow;
-    return delta <= lead && delta >= -5;
+    return delta <= Math.max(lead * 2, 45) && delta >= -5;
   });
-  return due.map((e) =>
-    botText(
-      `heads up — *${e.title}* starts at ${formatClock(e.start)} (${e.kind}). wrap what you're doing; this is the reminder you asked for.`,
-    ),
-  );
+
+  for (const e of upcoming) {
+    const start = Number(e.start.slice(0, 2)) * 60 + Number(e.start.slice(3, 5));
+    const delta = start - minutesNow;
+    const starLead = e.starred ? Math.max(lead * 2, 45) : lead;
+    if (delta <= starLead && delta >= -5 && !user.remindedEventIds.includes(e.id)) {
+      out.push(
+        botText(
+          e.starred
+            ? `★ heads up — starred *${e.title}* starts at ${formatClock(e.start)}. finish this before you slide into the next thing.`
+            : `heads up — *${e.title}* starts at ${formatClock(e.start)} (${e.kind}). wrap what you're doing; this is the reminder you asked for.`,
+        ),
+      );
+    }
+    const preId = `pre:${e.id}`;
+    if (
+      starredTodos.length &&
+      delta <= starLead &&
+      delta > 0 &&
+      !user.remindedEventIds.includes(preId)
+    ) {
+      out.push(
+        botText(
+          `before *${e.title}* at ${formatClock(e.start)}, knock out starred ${starredTodos.length === 1 ? "item" : "items"}: ${starredTodos.map((t) => `*${t.title}*`).join(", ")}.`,
+        ),
+      );
+    }
+  }
+  return out;
 }
 
 export { greeting };
