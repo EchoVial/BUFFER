@@ -1,6 +1,7 @@
 import { buildDayPlan } from "./scheduler";
 import { addDaysISO, dateISO, formatClock, hmToMinutes, minutesToHM, nowInZone, prettyDate } from "./time";
-import type { CalendarEvent, EventKind, MessageCard, UserRecord } from "./types";
+import type { CalendarEvent, EventKind, ImageCard, MessageCard, UserRecord } from "./types";
+import type { DayPlan } from "./scheduler";
 
 /**
  * The life-first half of Buffer: where the free time is this week, what it
@@ -67,15 +68,12 @@ export function weekView(user: UserRecord, days = 7): WeekView {
     out.totalWork += plan.stats.workMinutes;
     out.totalSocial += plan.stats.socialMinutes;
   }
-  // Best windows: evenings and weekend daytime first, longest first.
-  out.best = out.days
-    .flatMap((d) => d.windows)
-    .sort((a, b) => {
-      const rank = (w: FreeWindow) => (w.slot === "evening" ? 0 : w.slot === "weekend" ? 1 : 2);
-      if (rank(a) !== rank(b)) return rank(a) - rank(b);
-      return b.endMin - b.startMin - (a.endMin - a.startMin);
-    })
-    .slice(0, 4);
+  // Best windows: the longest first, with a thumb on the scale for evenings and weekends,
+  // and nothing under 90 minutes unless that is all there is.
+  const score = (w: FreeWindow) => w.endMin - w.startMin + (w.slot === "evening" ? 60 : w.slot === "weekend" ? 45 : 0);
+  const all = out.days.flatMap((d) => d.windows).sort((a, b) => score(b) - score(a));
+  const roomy = all.filter((w) => w.endMin - w.startMin >= 90);
+  out.best = (roomy.length ? roomy : all).slice(0, 4);
   return out;
 }
 
@@ -220,4 +218,55 @@ export function protectedEvent(date: string, start: string, durationMinutes: num
 export function describeWindow(date: string, start: string, durationMinutes: number): string {
   const s = hmToMinutes(start);
   return `${prettyDate(date)} · ${formatClock(start)} to ${formatClock(minutesToHM(s + durationMinutes))}`;
+}
+
+/** The week as a picture: free (outside work) stacked on work, per day. */
+export function weekImage(view: WeekView, user: UserRecord): ImageCard {
+  const today = dateISO(nowInZone(user.settings.timezone));
+  return {
+    type: "image",
+    variant: "week",
+    title: "Your next 7 days",
+    subtitle: `${hours(view.totalFree)} free outside work${view.totalWork ? ` · ${hours(view.totalWork)} of work booked` : ""}`,
+    days: view.days.map((d) => {
+      const biggest = [...d.windows].sort((a, b) => b.endMin - b.startMin - (a.endMin - a.startMin))[0];
+      return {
+        date: d.date,
+        label: `${weekdayShort(d.date)} ${Number(d.date.slice(8))}`,
+        freeMinutes: d.freeMinutes,
+        workMinutes: d.workMinutes,
+        best: biggest ? `${formatClock(minutesToHM(biggest.startMin)).replace(/:00/, "").replace(/\s/g, "").toLowerCase()} to ${formatClock(minutesToHM(biggest.endMin)).replace(/:00/, "").replace(/\s/g, "").toLowerCase()}` : undefined,
+        today: d.date === today,
+      };
+    }),
+  };
+}
+
+/** One day as a strip from wake to sleep. */
+export function dayImage(plan: DayPlan, user: UserRecord, label: string): ImageCard {
+  const now = nowInZone(user.settings.timezone);
+  const isToday = dateISO(now) === plan.date;
+  const from = hmToMinutes(user.settings.wakeTime || "07:00");
+  const to = hmToMinutes(user.settings.sleepTime || "23:00");
+  const blocks = plan.blocks
+    .filter((b) => b.kind !== "sleep")
+    .map((b) => ({
+      title: b.title,
+      kind: b.kind === "event" ? (b.subtype ?? "work") : b.kind === "social" ? "social" : b.kind,
+      startMin: b.startMin,
+      endMin: b.endMin,
+    }));
+  const s = plan.stats;
+  return {
+    type: "image",
+    variant: "day",
+    title: label,
+    subtitle: prettyDate(plan.date),
+    date: plan.date,
+    fromMin: from,
+    toMin: Math.max(to, from + 60),
+    nowMin: isToday ? now.getHours() * 60 + now.getMinutes() : undefined,
+    blocks,
+    footer: `${hours(s.workMinutes)} work · ${hours(s.socialMinutes)} people · ${hours(s.freeMinutes)} free`,
+  };
 }

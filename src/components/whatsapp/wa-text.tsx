@@ -28,7 +28,7 @@ function formatInline(line: string): ReactNode[] {
       className = "italic text-[#ffffffcc]";
     } else if (token.startsWith("~") && token.endsWith("~")) {
       inner = token.slice(1, -1);
-      className = "line-through text-[#ffffff99]";
+      className = "line-through text-(--wa-time)";
     }
     parts.push(
       <strong key={`b-${key++}`} className={className}>
@@ -50,7 +50,7 @@ export function WhatsAppText({ text }: { text: string }) {
         if (bullet) {
           return (
             <span key={i} className="flex min-h-[1.15em] gap-2">
-              <span className="w-4 shrink-0 text-center text-[#00a884]">•</span>
+              <span className="w-4 shrink-0 text-center text-(--wa-accent)">•</span>
               <span className="min-w-0 flex-1">{formatInline(bullet[3])}</span>
             </span>
           );
@@ -78,6 +78,7 @@ function scheduleBlock(title: string, lines: string[]) {
 }
 
 export function cardToWhatsApp(card: MessageCard): string {
+  if (card.type === "image") return "";
   if (card.type === "schedule") {
     const chunks = [
       scheduleBlock(card.date, card.lines),

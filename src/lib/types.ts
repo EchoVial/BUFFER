@@ -85,7 +85,30 @@ export interface ChatMessage {
   calendarEventId?: string;
 }
 
+/** A picture instead of a wall of text: the week as bars, or a day as a strip. Drawn client-side. */
+export type ImageCard =
+  | {
+      type: "image";
+      variant: "week";
+      title: string;
+      subtitle: string;
+      days: Array<{ date: string; label: string; freeMinutes: number; workMinutes: number; best?: string; today?: boolean }>;
+    }
+  | {
+      type: "image";
+      variant: "day";
+      title: string;
+      subtitle: string;
+      date: string;
+      fromMin: number;
+      toMin: number;
+      nowMin?: number;
+      blocks: Array<{ title: string; kind: string; startMin: number; endMin: number }>;
+      footer: string;
+    };
+
 export type MessageCard =
+  | ImageCard
   | {
       type: "schedule";
       date: string;

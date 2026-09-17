@@ -13,8 +13,8 @@ import {
   ArrowLeft,
   Check,
   CheckCheck,
+  Mic,
   MoreVertical,
-  Paperclip,
   Phone,
   Plus,
   Search,
@@ -31,6 +31,8 @@ import { CalendarConnect } from "@/components/calendar/CalendarConnect";
 import { MessageCards } from "./cards";
 import { WhatsAppText } from "./wa-text";
 import { ListTrigger, ReplyButtons, WhatsAppListSheet } from "./interactive";
+import { ThemeSheet } from "./theme-sheet";
+import { useAppearance } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 const LS = "balance.user.cache";
@@ -56,6 +58,8 @@ export function WhatsAppApp() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [listFor, setListFor] = useState<ChatMessage | null>(null);
   const [calOpen, setCalOpen] = useState(false);
+  const [themeOpen, setThemeOpen] = useState(false);
+  const [appearance, setAppearance] = useAppearance();
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
@@ -359,32 +363,32 @@ export function WhatsAppApp() {
   }
 
   return (
-    <div className="wa-app flex h-[100dvh] flex-col bg-[#0b141a] text-[#e9edef]">
+    <div className="wa-app flex h-[100dvh] flex-col bg-(--wa-bg) text-(--wa-text)">
       <div className="mx-auto flex h-full w-full max-w-[1600px] overflow-hidden shadow-[0_0_80px_rgba(0,0,0,.45)]">
         <aside
           className={cn(
-            "flex w-full flex-col border-r border-white/5 bg-[#111b21] md:w-[380px] md:min-w-[320px]",
+            "flex w-full flex-col border-r border-(--wa-divider) bg-(--wa-panel) md:w-[380px] md:min-w-[320px]",
             mobileChat ? "hidden md:flex" : "flex",
           )}
         >
-          <header className="flex items-center gap-3 bg-[#202c33] px-4 py-2.5">
+          <header className="flex items-center gap-3 bg-(--wa-bar) px-4 py-2.5">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#6a7175] text-sm font-semibold">
               {(user?.name || "?").slice(0, 1).toUpperCase()}
             </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-[15px] font-medium">{user?.name || "Not signed in"}</p>
-              <p className="truncate text-[12px] text-[#8696a0]">
+              <p className="truncate text-[12px] text-(--wa-muted)">
                 {awaitingName ? "Buffer wants your name" : "Work-life chat is live"}
               </p>
             </div>
             <Link
               href="/"
-              className="rounded-full px-2 py-1 text-[11px] text-[#8696a0] hover:bg-white/5"
+              className="rounded-full px-2 py-1 text-[11px] text-(--wa-muted) hover:bg-(--wa-hover)"
             >
               Site
             </Link>
           </header>
-          <div className="flex border-b border-white/5 bg-[#111b21] text-[13px] font-medium">
+          <div className="flex border-b border-(--wa-divider) bg-(--wa-panel) text-[13px] font-medium">
             {(["chats", "status", "calls"] as Tab[]).map((t) => (
               <button
                 key={t}
@@ -392,8 +396,8 @@ export function WhatsAppApp() {
                 className={cn(
                   "flex-1 py-3 capitalize",
                   tab === t
-                    ? "border-b-2 border-[#00a884] text-[#00a884]"
-                    : "text-[#8696a0]",
+                    ? "border-b-2 border-(--wa-accent) text-(--wa-accent)"
+                    : "text-(--wa-muted)",
                 )}
               >
                 {t}
@@ -403,8 +407,8 @@ export function WhatsAppApp() {
           {tab === "chats" && (
             <>
               <div className="px-3 py-2">
-                <div className="flex items-center gap-2 rounded-lg bg-[#202c33] px-3 py-1.5">
-                  <Search className="size-4 text-[#8696a0]" />
+                <div className="flex items-center gap-2 rounded-lg bg-(--wa-bar) px-3 py-1.5">
+                  <Search className="size-4 text-(--wa-muted)" />
                   <input
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
@@ -418,71 +422,71 @@ export function WhatsAppApp() {
                       }
                     }}
                     placeholder={awaitingName ? "Type your name to start…" : "Search chats"}
-                    className="w-full bg-transparent text-[14px] outline-none placeholder:text-[#8696a0]"
+                    className="w-full bg-transparent text-[14px] outline-none placeholder:text-(--wa-muted)"
                   />
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setMobileChat(true)}
-                className="flex w-full items-center gap-3 px-3 py-3 text-left hover:bg-white/5"
+                className="flex w-full items-center gap-3 px-3 py-3 text-left hover:bg-(--wa-hover)"
               >
                 <div className="relative">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#00a884] text-lg font-bold text-[#111b21]">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-(--wa-accent) text-lg font-bold text-(--wa-accent-ink)">
                     B
                   </div>
-                  <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[#111b21] bg-[#00a884]" />
+                  <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-(--wa-panel) bg-(--wa-accent)" />
                 </div>
-                <div className="min-w-0 flex-1 border-b border-white/5 pb-3">
+                <div className="min-w-0 flex-1 border-b border-(--wa-divider) pb-3">
                   <div className="flex items-baseline justify-between">
                     <p className="text-[16px] font-medium">{botName}</p>
-                    <p className="text-[12px] text-[#00a884]">
+                    <p className="text-[12px] text-(--wa-accent)">
                       {last ? formatMessageTime(last.createdAt) : ""}
                     </p>
                   </div>
-                  <p className="truncate text-[13px] text-[#8696a0]">{preview}</p>
+                  <p className="truncate text-[13px] text-(--wa-muted)">{preview}</p>
                 </div>
               </button>
             </>
           )}
           {tab === "status" && (
             <div className="space-y-3 p-4 text-[14px]">
-              <p className="text-[12px] font-semibold uppercase tracking-wide text-[#8696a0]">
+              <p className="text-[12px] font-semibold uppercase tracking-wide text-(--wa-muted)">
                 My status
               </p>
               <div className="flex gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-[#00a884] bg-[#202c33]">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-(--wa-accent) bg-(--wa-bar)">
                   {(user?.name || "Y").slice(0, 1)}
                 </div>
                 <div>
                   <p>Today&apos;s buffer</p>
-                  <p className="text-[13px] text-[#8696a0]">
+                  <p className="text-[13px] text-(--wa-muted)">
                     {user
                       ? `Social goal ${Math.round(user.settings.socialMinutesPerDay / 60)}h · work cap ${Math.round(user.settings.maxWorkMinutesPerDay / 60)}h`
                       : "Sign in to post a status"}
                   </p>
                 </div>
               </div>
-              <p className="text-[12px] font-semibold uppercase tracking-wide text-[#8696a0]">
+              <p className="text-[12px] font-semibold uppercase tracking-wide text-(--wa-muted)">
                 Recent
               </p>
-              <p className="text-[#8696a0]">
+              <p className="text-(--wa-muted)">
                 Buffer · tap the chat and say &quot;how am i doing&quot; for a burnout check.
               </p>
             </div>
           )}
           {tab === "calls" && (
-            <div className="p-4 text-[14px] text-[#8696a0]">
-              <p className="mb-3 text-[#e9edef]">Scheduled</p>
+            <div className="p-4 text-[14px] text-(--wa-muted)">
+              <p className="mb-3 text-(--wa-text)">Scheduled</p>
               {(user?.events || [])
                 .slice()
                 .sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start))
                 .slice(0, 8)
                 .map((e) => (
-                  <div key={e.id} className="flex items-center gap-3 border-b border-white/5 py-3">
-                    <Phone className="size-4 text-[#00a884]" />
+                  <div key={e.id} className="flex items-center gap-3 border-b border-(--wa-divider) py-3">
+                    <Phone className="size-4 text-(--wa-accent)" />
                     <div>
-                      <p className="text-[#e9edef]">{e.title}</p>
+                      <p className="text-(--wa-text)">{e.title}</p>
                       <p className="text-[12px]">
                         {e.date} · {e.start} · {e.kind}
                       </p>
@@ -496,11 +500,11 @@ export function WhatsAppApp() {
 
         <section
           className={cn(
-            "relative min-w-0 flex-1 flex-col bg-[#0b141a]",
+            "relative min-w-0 flex-1 flex-col bg-(--wa-wall) text-(--wa-text)",
             mobileChat ? "flex" : "hidden md:flex",
           )}
         >
-          <header className="z-10 flex items-center gap-3 bg-[#202c33] px-3 py-2">
+          <header className="z-10 flex items-center gap-3 bg-(--wa-bar) px-3 py-2">
             <button className="md:hidden" onClick={() => setMobileChat(false)} aria-label="Back">
               <ArrowLeft className="size-5" />
             </button>
@@ -508,29 +512,29 @@ export function WhatsAppApp() {
               className="flex min-w-0 flex-1 items-center gap-3 text-left"
               onClick={() => setInfoOpen(true)}
             >
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#00a884] font-bold text-[#111b21]">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-(--wa-accent) font-bold text-(--wa-accent-ink)">
                 B
               </div>
               <div className="min-w-0">
                 <p className="truncate text-[16px] font-medium">{botName}</p>
-                <p className="truncate text-[12px] text-[#00a884]">
-                  {typing ? "typing…" : "online"}
+                <p className={cn("truncate text-[12px]", typing ? "text-(--wa-accent)" : "text-(--wa-muted)")}>
+                  {typing ? "typing…" : "online · tap for info"}
                 </p>
               </div>
             </button>
             <button onClick={() => setShowSearch((s) => !s)} aria-label="Search">
-              <Search className="size-5 text-[#aebac1]" />
+              <Search className="size-5 text-(--wa-icon)" />
             </button>
-            <Video className="size-5 text-[#aebac1] opacity-50" />
-            <Phone className="size-5 text-[#aebac1] opacity-50" />
+            <Video className="size-5 text-(--wa-icon) opacity-50" />
+            <Phone className="size-5 text-(--wa-icon) opacity-50" />
             <div className="relative">
               <button onClick={() => setMenuOpen((s) => !s)} aria-label="Menu">
-                <MoreVertical className="size-5 text-[#aebac1]" />
+                <MoreVertical className="size-5 text-(--wa-icon)" />
               </button>
               {menuOpen && (
-                <div className="absolute right-0 z-20 mt-2 w-48 rounded bg-[#233138] py-2 text-[14px] shadow-xl">
+                <div className="absolute right-0 z-20 mt-2 w-48 rounded bg-(--wa-pop) py-2 text-[14px] shadow-xl">
                   <button
-                    className="block w-full px-4 py-2 text-left hover:bg-white/5"
+                    className="block w-full px-4 py-2 text-left hover:bg-(--wa-hover)"
                     onClick={() => {
                       setInfoOpen(true);
                       setMenuOpen(false);
@@ -539,13 +543,13 @@ export function WhatsAppApp() {
                     Contact info
                   </button>
                   <button
-                    className="block w-full px-4 py-2 text-left hover:bg-white/5"
+                    className="block w-full px-4 py-2 text-left hover:bg-(--wa-hover)"
                     onClick={() => void send("rundown")}
                   >
                     Today&apos;s rundown
                   </button>
                   <button
-                    className="block w-full px-4 py-2 text-left hover:bg-white/5"
+                    className="block w-full px-4 py-2 text-left hover:bg-(--wa-hover)"
                     onClick={() => {
                       setCalOpen(true);
                       setMenuOpen(false);
@@ -554,7 +558,16 @@ export function WhatsAppApp() {
                     Connect calendar
                   </button>
                   <button
-                    className="block w-full px-4 py-2 text-left hover:bg-white/5"
+                    className="block w-full px-4 py-2 text-left hover:bg-(--wa-hover)"
+                    onClick={() => {
+                      setThemeOpen(true);
+                      setMenuOpen(false);
+                    }}
+                  >
+                    Theme and wallpaper
+                  </button>
+                  <button
+                    className="block w-full px-4 py-2 text-left hover:bg-(--wa-hover)"
                     onClick={() => void signOut()}
                   >
                     Switch person
@@ -564,12 +577,12 @@ export function WhatsAppApp() {
             </div>
           </header>
           {showSearch && (
-            <div className="flex items-center gap-2 bg-[#202c33] px-3 pb-2">
+            <div className="flex items-center gap-2 bg-(--wa-bar) px-3 pb-2">
               <input
                 value={msgSearch}
                 onChange={(e) => setMsgSearch(e.target.value)}
                 placeholder="Search this chat"
-                className="w-full rounded bg-[#2a3942] px-3 py-1.5 text-sm outline-none"
+                className="w-full rounded bg-(--wa-input) px-3 py-1.5 text-sm outline-none"
               />
               <button onClick={() => setShowSearch(false)}>
                 <X className="size-4" />
@@ -584,14 +597,15 @@ export function WhatsAppApp() {
             {grouped.map((g) => (
               <div key={g.day}>
                 <div className="sticky top-2 z-[1] mb-3 flex justify-center">
-                  <span className="rounded-[7px] bg-[#182229] px-3 py-1 text-[12.5px] text-[#8696a0] shadow">
+                  <span className="rounded-[7px] bg-(--wa-chip) px-3 py-1 text-[12.5px] text-(--wa-muted) shadow">
                     {g.day}
                   </span>
                 </div>
-                {g.msgs.map((m) => (
+                {g.msgs.map((m, i) => (
                   <Bubble
                     key={m.id}
                     message={m}
+                    tail={i === 0 || g.msgs[i - 1].role !== m.role}
                     onButton={(button) => handleReplyButton(m, button)}
                     onList={() => setListFor(m)}
                   />
@@ -600,7 +614,7 @@ export function WhatsAppApp() {
             ))}
             {typing && (
               <div className="mb-2 flex justify-start">
-                <div className="rounded-lg rounded-tl-none bg-[#202c33] px-3 py-2 text-[#8696a0]">
+                <div className="wa-bubble wa-in wa-tail rounded-lg rounded-tl-none bg-(--wa-in) px-3 py-2 text-(--wa-muted)">
                   <span className="inline-flex gap-1">
                     <i className="wa-dot" />
                     <i className="wa-dot" />
@@ -613,14 +627,14 @@ export function WhatsAppApp() {
           </div>
 
           {chips.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto bg-[#0b141a] px-3 pb-1">
+            <div className="flex gap-2 overflow-x-auto bg-(--wa-bg) px-3 pb-1">
               {chips.map((c) => (
                 <button
                   key={c}
                   onClick={() =>
                     c === "connect calendar" ? setCalOpen(true) : void send(c)
                   }
-                  className="shrink-0 rounded-full border border-[#00a884]/40 bg-[#202c33] px-3 py-1 text-[13px] text-[#00a884]"
+                  className="shrink-0 rounded-full border border-(--wa-accent) bg-(--wa-bar) px-3 py-1 text-[13px] text-(--wa-accent)"
                 >
                   {c}
                 </button>
@@ -633,7 +647,7 @@ export function WhatsAppApp() {
               e.preventDefault();
               void send();
             }}
-            className="relative z-30 flex items-end gap-2 bg-[#202c33] px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-4"
+            className="relative z-30 flex items-end gap-2 bg-(--wa-bar) px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-4"
           >
             <div className="relative">
               <button
@@ -644,10 +658,10 @@ export function WhatsAppApp() {
                 }}
                 aria-label="Emoji"
               >
-                <Smile className="mb-2 size-6 text-[#8696a0]" />
+                <Smile className="mb-2 size-6 text-(--wa-muted)" />
               </button>
               {emojiOpen && (
-                <div className="absolute bottom-12 left-0 z-10 grid w-56 grid-cols-6 gap-1 rounded-xl bg-[#233138] p-2 shadow-xl">
+                <div className="absolute bottom-12 left-0 z-10 grid w-56 grid-cols-6 gap-1 rounded-xl bg-(--wa-pop) p-2 shadow-xl">
                   {EMOJIS.map((e) => (
                     <button
                       key={e}
@@ -676,10 +690,10 @@ export function WhatsAppApp() {
                 }}
                 aria-label="Attach"
               >
-                <Plus className="mb-2 size-6 text-[#8696a0]" />
+                <Plus className="mb-2 size-6 text-(--wa-muted)" />
               </button>
               {plusOpen && (
-                <div className="absolute bottom-12 left-0 z-10 w-52 rounded-xl bg-[#233138] py-2 text-[14px] shadow-xl">
+                <div className="absolute bottom-12 left-0 z-10 w-52 rounded-xl bg-(--wa-pop) py-2 text-[14px] shadow-xl">
                   {[
                     ["📅 New event", "plan "],
                     ["✅ New to-do", "remind me to "],
@@ -692,7 +706,7 @@ export function WhatsAppApp() {
                     <button
                       key={label}
                       type="button"
-                      className="block w-full px-4 py-2 text-left hover:bg-white/5"
+                      className="block w-full px-4 py-2 text-left hover:bg-(--wa-hover)"
                       onClick={() => {
                         if (fill === "rundown") void send("rundown");
                         else if (fill === "connect calendar") {
@@ -714,7 +728,6 @@ export function WhatsAppApp() {
                 </div>
               )}
             </div>
-            <Paperclip className="mb-2 hidden size-5 text-[#8696a0] md:block" />
             <textarea
               ref={composer}
               name="message"
@@ -735,54 +748,55 @@ export function WhatsAppApp() {
                 void send();
               }}
               placeholder={
-                awaitingName ? "Type your name, then send" : "Type a message. Shift+Enter for a new line."
+                awaitingName ? "Your name, then send" : "Message"
               }
-              className="max-h-40 min-h-[44px] flex-1 resize-none rounded-lg bg-[#2a3942] px-3 py-2.5 text-[15px] outline-none placeholder:text-[#8696a0]"
+              className="max-h-40 min-h-[44px] flex-1 resize-none rounded-[22px] bg-(--wa-input) px-4 py-2.5 text-[15px] text-(--wa-text) outline-none placeholder:text-(--wa-muted)"
             />
             <button
               type="button"
-              aria-label="Send"
+              aria-label={draft.trim() ? "Send" : "Voice message (not in this demo)"}
               onMouseDown={(e) => e.preventDefault()}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                void send();
+                if (draft.trim()) void send();
               }}
-              className="relative z-40 mb-0.5 flex size-12 shrink-0 touch-manipulation items-center justify-center rounded-full bg-[#00a884] text-[#111b21]"
+              className="relative z-40 mb-0.5 flex size-12 shrink-0 touch-manipulation items-center justify-center rounded-full bg-(--wa-accent) text-(--wa-accent-ink) transition-transform active:scale-95"
               aria-busy={sending}
             >
-              <Send className="pointer-events-none size-5" />
+              {draft.trim() ? <Send className="pointer-events-none size-5" /> : <Mic className="pointer-events-none size-5" />}
             </button>
           </form>
         </section>
       </div>
 
+      {themeOpen && <ThemeSheet appearance={appearance} onChange={setAppearance} onClose={() => setThemeOpen(false)} />}
       {infoOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/50" onClick={() => setInfoOpen(false)}>
           <div
-            className="h-full w-full max-w-md overflow-y-auto bg-[#111b21]"
+            className="h-full w-full max-w-md overflow-y-auto bg-(--wa-panel)"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center gap-4 bg-[#202c33] px-4 py-4">
+            <div className="flex items-center gap-4 bg-(--wa-bar) px-4 py-4">
               <button onClick={() => setInfoOpen(false)}>
                 <X />
               </button>
               <p>Contact info</p>
             </div>
             <div className="flex flex-col items-center gap-2 py-8">
-              <div className="flex h-28 w-28 items-center justify-center rounded-full bg-[#00a884] text-4xl font-bold text-[#111b21]">
+              <div className="flex h-28 w-28 items-center justify-center rounded-full bg-(--wa-accent) text-4xl font-bold text-(--wa-accent-ink)">
                 B
               </div>
               <p className="text-xl">{botName}</p>
-              <p className="text-sm text-[#8696a0]">Bot · always online</p>
+              <p className="text-sm text-(--wa-muted)">Bot · always online</p>
             </div>
-            <div className="space-y-2 bg-[#0b141a] p-4 text-[14px]">
-              <p className="text-[#8696a0]">About</p>
+            <div className="space-y-2 bg-(--wa-bg) p-4 text-[14px]">
+              <p className="text-(--wa-muted)">About</p>
               <p>{settings?.botAbout}</p>
             </div>
             {user && (
-              <div className="mt-2 space-y-2 bg-[#0b141a] p-4 text-[13px] leading-6">
-                <p className="text-[#8696a0]">Your rules</p>
+              <div className="mt-2 space-y-2 bg-(--wa-bg) p-4 text-[13px] leading-6">
+                <p className="text-(--wa-muted)">Your rules</p>
                 <p>Wake {user.settings.wakeTime} · Sleep {user.settings.sleepTime}</p>
                 <p>
                   Work {user.settings.workStart}–{user.settings.workEnd} · cap{" "}
@@ -792,14 +806,14 @@ export function WhatsAppApp() {
                   Social {Math.round(user.settings.socialMinutesPerDay / 60)}h / day · no work after{" "}
                   {user.settings.noWorkAfter || "—"}
                 </p>
-                <p className="text-[#8696a0]">Chat kept as {user.name}</p>
+                <p className="text-(--wa-muted)">Chat kept as {user.name}</p>
                 <p>
                   {user.messages.length} messages · {user.events.length} events · {user.todos.length}{" "}
                   to-dos
                 </p>
                 <button
                   type="button"
-                  className="mt-2 text-[#00a884]"
+                  className="mt-2 text-(--wa-accent)"
                   onClick={() => {
                     setInfoOpen(false);
                     setCalOpen(true);
@@ -818,7 +832,7 @@ export function WhatsAppApp() {
           onClick={() => setCalOpen(false)}
         >
           <div
-            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-[#111b21] p-5 md:rounded-2xl"
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-(--wa-panel) p-5 md:rounded-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             {user ? (
@@ -831,13 +845,13 @@ export function WhatsAppApp() {
                 }}
               />
             ) : (
-              <p className="text-sm text-[#8696a0]">
+              <p className="text-sm text-(--wa-muted)">
                 Say your name in chat first so we can mint a private feed.
               </p>
             )}
             <button
               type="button"
-              className="mt-4 w-full rounded-lg bg-[#202c33] py-2.5 text-[14px]"
+              className="mt-4 w-full rounded-lg bg-(--wa-bar) py-2.5 text-[14px]"
               onClick={() => setCalOpen(false)}
             >
               Close
@@ -869,10 +883,12 @@ export function WhatsAppApp() {
 
 function Bubble({
   message,
+  tail,
   onButton,
   onList,
 }: {
   message: ChatMessage;
+  tail: boolean;
   onButton: (button: ReplyButton) => void;
   onList: () => void;
 }) {
@@ -881,20 +897,32 @@ function Bubble({
     <div className={cn("mb-1.5 flex", mine ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-[min(85%,32rem)] overflow-hidden rounded-lg shadow",
-          mine ? "rounded-tr-none bg-[#005c4b]" : "rounded-tl-none bg-[#202c33]",
+          "wa-bubble max-w-[min(85%,32rem)] rounded-lg",
+          mine ? "wa-out rounded-tr-none bg-(--wa-out)" : "wa-in rounded-tl-none bg-(--wa-in)",
+          tail && "wa-tail",
         )}
       >
-        <div className="px-2 pt-1.5 pb-1">
-          <div className="whitespace-pre-wrap break-words text-[14.2px] leading-[19px] text-[#e9edef] [overflow-wrap:anywhere]">
-            <WhatsAppText text={message.text} />
-          </div>
-          <MessageCards message={message} />
-          <p className="mt-0.5 flex items-center justify-end gap-1 text-[11px] text-[#ffffff99]">
+        <div className={cn("px-2 pt-1.5 pb-1", message.card?.type === "image" && "px-1 pt-1")}>
+          {message.card?.type === "image" ? (
+            <>
+              <MessageCards message={message} />
+              <div className="mt-1 whitespace-pre-wrap break-words px-1 text-[14.2px] leading-[19px] text-(--wa-text) [overflow-wrap:anywhere]">
+                <WhatsAppText text={message.text} />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="whitespace-pre-wrap break-words text-[14.2px] leading-[19px] text-(--wa-text) [overflow-wrap:anywhere]">
+                <WhatsAppText text={message.text} />
+              </div>
+              <MessageCards message={message} />
+            </>
+          )}
+          <p className={cn("mt-0.5 flex items-center justify-end gap-1 text-[11px] text-(--wa-time)", message.card?.type === "image" && "px-1")}>
             {formatMessageTime(message.createdAt)}
             {mine &&
               (message.status === "read" ? (
-                <CheckCheck className="size-3.5 text-[#53bdeb]" />
+                <CheckCheck className="size-3.5 text-(--wa-tick)" />
               ) : (
                 <Check className="size-3.5" />
               ))}

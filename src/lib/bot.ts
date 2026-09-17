@@ -12,7 +12,7 @@ import {
 import { uid } from "./ids";
 import { understand } from "./understand";
 import type { ParsedMessage } from "./nlp";
-import { describeWindow, hours, protectPayload, protectedEvent, slotName, suggestForFreeTime, suggestionPayload, weekCard, weekView, windowLabel } from "./life";
+import { dayImage, describeWindow, hours, protectPayload, protectedEvent, slotName, suggestForFreeTime, suggestionPayload, weekImage, weekView, windowLabel } from "./life";
 import { findNamedItem } from "./match";
 import { buildDayPlan, planLines, proposeEvent, statsLine } from "./scheduler";
 import {
@@ -32,7 +32,7 @@ type BotExtra = {
   calendarEventId?: string;
 };
 
-const CARD_TYPES = new Set(["schedule", "proposal", "todos", "overlaps", "debug"]);
+const CARD_TYPES = new Set(["schedule", "proposal", "todos", "overlaps", "debug", "image"]);
 
 function botText(text: string, extra?: MessageCard | BotExtra): ChatMessage {
   const opts: BotExtra =
@@ -420,7 +420,7 @@ export async function processTurn(
     }));
     push(
       botText(`${lead}${best}${nudge}`, {
-        card: weekCard(view),
+        card: weekImage(view, next),
         buttons: [...buttons, { id: "ideas", title: "Ideas", payload: "what should i do with my free time" }].slice(0, 3),
       }),
     );
@@ -820,17 +820,17 @@ export async function processTurn(
   } else if (parsed.intent === "schedule") {
     const today = parsed.event.date || dateISO(nowInZone(next.settings.timezone));
     const plan = buildDayPlan(next, today);
+    const isToday = today === dateISO(nowInZone(next.settings.timezone));
+    const warn = plan.warnings.length ? `\n${plan.warnings.slice(0, 2).map((w) => `• ${w}`).join("\n")}` : "";
     push(
-      botText(
-        `${prettyDate(today)} *rundown* — ${statsLine(plan.stats)}${peopleNote(plan.stats, "rundown")}`,
-        {
-          type: "schedule",
-          date: today,
-          lines: planLines(plan),
-          warnings: plan.warnings,
-          stats: plan.stats,
-        },
-      ),
+      botText(`${isToday ? "today" : prettyDate(today)}: ${statsLine(plan.stats).toLowerCase()}.${peopleNote(plan.stats, "rundown")}${warn}`, {
+        card: dayImage(plan, next, isToday ? "Today" : prettyDate(today)),
+        buttons: [
+          { id: "week", title: "The week", payload: "how's my week" },
+          { id: "ideas", title: "Ideas for the gaps", payload: "what should i do with my free time" },
+          { id: "add", title: "Add something", payload: "i want to plan an event" },
+        ],
+      }),
     );
   } else if (parsed.intent === "overlaps") {
     const today = parsed.event.date || dateISO(nowInZone(next.settings.timezone));

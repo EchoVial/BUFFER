@@ -39,7 +39,7 @@ export function CalendarConnect({
 
   if (!token) {
     return (
-      <p className="text-sm text-[#8696a0]">
+      <p className="text-sm text-(--wa-muted)">
         Sign in through chat first so we can mint a private calendar feed for you.
       </p>
     );
@@ -113,10 +113,10 @@ export function CalendarConnect({
   return (
     <div className={cn("space-y-4", compact && "space-y-3")}>
       <div>
-        <p className={cn("font-medium text-[#e9edef]", compact ? "text-[15px]" : "text-lg")}>
+        <p className={cn("font-medium text-(--wa-text)", compact ? "text-[15px]" : "text-lg")}>
           Connect {name} calendar
         </p>
-        <p className="mt-1 text-[13px] leading-5 text-[#8696a0]">
+        <p className="mt-1 text-[13px] leading-5 text-(--wa-muted)">
           Browsers can’t silently write into Google, Apple, or Android calendars. Subscribe to your
           live Buffer feed instead — locked events and open to-dos refresh about every 15 minutes.
         </p>
@@ -136,7 +136,7 @@ export function CalendarConnect({
             setHint(`Opened Google Calendar to subscribe. You're connected once you confirm Add.`);
             onConnected?.(via);
           }}
-          className="flex w-full items-center justify-center rounded-full bg-[#00a884] px-4 py-3 text-[15px] font-semibold text-[#111b21]"
+          className="flex w-full items-center justify-center rounded-full bg-(--wa-accent) px-4 py-3 text-[15px] font-semibold text-(--wa-accent-ink)"
         >
           {primary.label}
         </a>
@@ -144,7 +144,7 @@ export function CalendarConnect({
         <button
           type="button"
           onClick={primary.onClick}
-          className="flex w-full items-center justify-center rounded-full bg-[#00a884] px-4 py-3 text-[15px] font-semibold text-[#111b21]"
+          className="flex w-full items-center justify-center rounded-full bg-(--wa-accent) px-4 py-3 text-[15px] font-semibold text-(--wa-accent-ink)"
         >
           {primary.label}
         </button>
@@ -163,18 +163,18 @@ export function CalendarConnect({
         <button
           type="button"
           onClick={openApple}
-          className="rounded-xl border border-white/10 bg-[#202c33] px-3 py-3 text-left hover:bg-white/5"
+          className="rounded-xl border border-(--wa-divider) bg-(--wa-bar) px-3 py-3 text-left hover:bg-(--wa-hover)"
         >
-          <p className="text-[14px] font-medium text-[#e9edef]">Apple Calendar</p>
-          <p className="text-[12px] text-[#8696a0]">iPhone, iPad, and Mac via webcal</p>
+          <p className="text-[14px] font-medium text-(--wa-text)">Apple Calendar</p>
+          <p className="text-[12px] text-(--wa-muted)">iPhone, iPad, and Mac via webcal</p>
         </button>
         <button
           type="button"
           onClick={openOutlook}
-          className="rounded-xl border border-white/10 bg-[#202c33] px-3 py-3 text-left hover:bg-white/5"
+          className="rounded-xl border border-(--wa-divider) bg-(--wa-bar) px-3 py-3 text-left hover:bg-(--wa-hover)"
         >
-          <p className="text-[14px] font-medium text-[#e9edef]">Outlook</p>
-          <p className="text-[12px] text-[#8696a0]">
+          <p className="text-[14px] font-medium text-(--wa-text)">Outlook</p>
+          <p className="text-[12px] text-(--wa-muted)">
             {publicHttps
               ? "Outlook.com and Microsoft 365 subscribe-from-web"
               : "Adds the latest event + .ics (live subscribe needs https)"}
@@ -183,38 +183,38 @@ export function CalendarConnect({
         <button
           type="button"
           onClick={snapshot}
-          className="rounded-xl border border-white/10 bg-[#202c33] px-3 py-3 text-left hover:bg-white/5"
+          className="rounded-xl border border-(--wa-divider) bg-(--wa-bar) px-3 py-3 text-left hover:bg-(--wa-hover)"
         >
-          <p className="flex items-center gap-2 text-[14px] font-medium text-[#e9edef]">
+          <p className="flex items-center gap-2 text-[14px] font-medium text-(--wa-text)">
             <Download className="size-4" />
             Download .ics snapshot
           </p>
-          <p className="text-[12px] text-[#8696a0]">One-time import if subscribe isn’t available</p>
+          <p className="text-[12px] text-(--wa-muted)">One-time import if subscribe isn’t available</p>
         </button>
       </div>
 
-      <div className="rounded-xl bg-[#202c33] p-3">
-        <p className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-[#8696a0]">
+      <div className="rounded-xl bg-(--wa-bar) p-3">
+        <p className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-(--wa-muted)">
           <Smartphone className="size-3.5" />
           Private feed URL
         </p>
-        <p className="break-all text-[12px] text-[#e9edef]">{httpsUrl}</p>
+        <p className="break-all text-[12px] text-(--wa-text)">{httpsUrl}</p>
         <button
           type="button"
           onClick={() => void copyFeed()}
-          className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-medium text-[#53bdeb]"
+          className="mt-2 inline-flex items-center gap-1.5 text-[13px] font-medium text-(--wa-link)"
         >
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
           {copied ? "Copied" : "Copy URL"}
         </button>
-        <p className="mt-2 text-[12px] leading-5 text-[#8696a0]">
+        <p className="mt-2 text-[12px] leading-5 text-(--wa-muted)">
           Anyone with this URL can read your schedule. Don’t post it publicly. On Android you can
           also paste it in Google Calendar → Settings → Add calendar → From URL. In Outlook: Add
           calendar → Subscribe from web → paste this HTTPS .ics URL.
         </p>
       </div>
 
-      {hint ? <p className="text-[13px] leading-5 text-[#00a884]">{hint}</p> : null}
+      {hint ? <p className="text-[13px] leading-5 text-(--wa-accent)">{hint}</p> : null}
     </div>
   );
 }
@@ -236,10 +236,10 @@ function OsLink({
       target="_blank"
       rel="noopener noreferrer"
       onClick={onClick}
-      className="rounded-xl border border-white/10 bg-[#202c33] px-3 py-3 text-left hover:bg-white/5"
+      className="rounded-xl border border-(--wa-divider) bg-(--wa-bar) px-3 py-3 text-left hover:bg-(--wa-hover)"
     >
-      <p className="text-[14px] font-medium text-[#e9edef]">{title}</p>
-      <p className="text-[12px] text-[#8696a0]">{detail}</p>
+      <p className="text-[14px] font-medium text-(--wa-text)">{title}</p>
+      <p className="text-[12px] text-(--wa-muted)">{detail}</p>
     </a>
   );
 }
