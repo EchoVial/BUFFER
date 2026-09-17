@@ -211,7 +211,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   botDisplayName: "Buffer",
   botAbout:
-    "Your work-life wingman. Plans events, stacks to-dos, flags overlaps, and protects social time.",
+    "Keeps the calendar honest and leaves a little room for people — friends, family, a walk, a coffee — without nagging.",
   defaultUserSettings: DEFAULT_USER_SETTINGS,
   debugNlpInChat: false,
   allowAutoCreateUsers: true,

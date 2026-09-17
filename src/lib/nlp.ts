@@ -236,7 +236,7 @@ function parseDuration(text: string): number | undefined {
 }
 
 function parseKind(text: string): EventKind | undefined {
-  if (/\b(social|friends|friend|hang|date|party|dinner|brunch|drinks|catch up|catch-up)\b/.test(text))
+  if (/\b(social|friends|friend|hangout|hang|date|party|dinner|brunch|drinks|catch up|catch-up|coffee with|people)\b/.test(text))
     return "social";
   if (/\b(gym|run|yoga|walk|doctor|health|therapy|sleep)\b/.test(text)) return "health";
   if (/\b(work|meeting|standup|stand-up|sync|deadline|sprint|deep work|focus|client|boss|office|zoom|call with)\b/.test(text))
@@ -256,10 +256,10 @@ function parsePriority(text: string): TodoPriority | undefined {
 function parsePrefs(text: string, notes: string[]) {
   const prefs: ParsedMessage["prefs"] = {};
   const social = text.match(
-    /\b(?:want|need|protect|keep|give me|i want)?\s*(?:at least\s*)?(\d+(?:\.\d+)?)\s*(?:hours|hour)\s*(?:of\s+)?(?:social|friends|hangout|life)/,
+    /\b(?:want|need|protect|keep|give me|leave me|i want)?\s*(?:at least\s*)?(\d+(?:\.\d+)?)\s*(?:hours|hour)\s*(?:of\s+|for\s+)?(?:social|friends|hangout|life|people)/,
   );
   const social2 = text.match(
-    /\b(\d+(?:\.\d+)?)\s*(?:hours|hour)\s*(?:of\s+)?social/,
+    /\b(\d+(?:\.\d+)?)\s*(?:hours|hour)\s*(?:of\s+|for\s+)?(?:social|people)/,
   );
   if (social || social2) {
     const n = Number((social || social2)![1]);
@@ -433,7 +433,7 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
   else if (cancel) intent = "cancel";
   else if (
     Object.keys(prefs).length &&
-    /\b(want|need|set|make|keep|protect|from|wake|sleep|cap|limit|hours of social|social hours|work from)\b/.test(
+    /\b(want|need|set|make|keep|protect|from|wake|sleep|cap|limit|hours of social|social hours|work from|for people)\b/.test(
       normalized,
     )
   ) {
@@ -513,6 +513,9 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
     else title = raw.split("\n")[0].trim() || "Event";
   }
   title = title.charAt(0).toUpperCase() + title.slice(1);
+  if (/\b(plan (a |something )?social|something social|plan a hang)\b/.test(normalized)) {
+    title = "Hang";
+  }
 
   const renameTo = (normalized.match(/\b(?:rename|change)\s+.+?\s+to\s+(.+)$/) ||
     normalized.match(/\bcall (?:it|that)\s+(.+)$/))?.[1]?.trim();

@@ -48,7 +48,7 @@ export function LandingPage() {
             </h1>
             <p className="mt-4 max-w-xl text-[16px] leading-7 text-[#aebac1]">
               {settings?.botAbout ||
-                "Buffer plans events, stacks to-dos, and protects social time. This site publishes a live calendar feed each OS can subscribe to — websites still can’t silently write into the built-in calendar."}
+                "Buffer plans events, stacks to-dos, and quietly leaves room for people. This site publishes a live calendar feed each OS can subscribe to — websites still can’t silently write into the built-in calendar."}
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <Link

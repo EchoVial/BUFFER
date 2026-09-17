@@ -2,6 +2,7 @@ import {
   CalendarEvent,
   ChatMessage,
   ConversationDraft,
+  DayStats,
   InteractiveList,
   MessageCard,
   ReplyButton,
@@ -78,6 +79,12 @@ const START_LIST: InteractiveList = {
           payload: "i want to plan an event",
         },
         {
+          id: "hang",
+          title: "Plan a hang",
+          description: "Coffee, dinner, a catch-up",
+          payload: "plan something social",
+        },
+        {
           id: "todo",
           title: "Add a to-do",
           description: "Priority stack",
@@ -90,8 +97,8 @@ const START_LIST: InteractiveList = {
       rows: [
         {
           id: "social",
-          title: "Set social hours",
-          description: "Protect time off work",
+          title: "Leave room for people",
+          description: "A daily window, if you want it",
           payload: "i want 2 hrs of social every day",
         },
         {
@@ -128,7 +135,7 @@ function userText(text: string): ChatMessage {
 function greeting(name: string): ChatMessage[] {
   return [
     botText(
-      `hey ${name.split(" ")[0]} 👋 i'm *Buffer*. think of me as the friend who actually remembers your calendar *and* tells you to leave the laptop.\n\ntext me like you text anyone — gym tmrw 7pm, i want 2 hrs of social every day, *rundown*, remind me to send the deck p0.\n\nor tap *See options* below, WhatsApp-style.`,
+      `hey ${name.split(" ")[0]} 👋 i'm *Buffer*. i keep the calendar straight so there's still room for people — friends, family, a walk, a coffee — and i try not to nag.\n\ntext me like anyone: lunch w sam friday, gym tmrw 7pm, *rundown*, remind me to send the deck.\n\nor tap *See options*.`,
       { list: START_LIST },
     ),
   ];
@@ -161,11 +168,12 @@ function connectedLabel(via: string): string {
 function helpText(): string {
   return [
     "i get messy texts. try stuff like:",
+    "• lunch w sam friday at 1",
+    "• coffee with a friend this week",
     "• gym tmrw 6:30pm for 1h",
-    "• lunch w sam friday at 1, social",
     "• remind me to finish the deck p0 90m",
     "• add under deck: dump outline 30m",
-    "• i want 2 hours of social every day",
+    "• leave me 2 hours for people every day",
     "• i work 9 to 6, no work after 7pm",
     "• rundown / what's today",
     "• overlaps?",
@@ -303,6 +311,48 @@ function lockFollowupButtons(connected: boolean): ReplyButton[] {
   ];
 }
 
+function peopleNote(
+  stats: DayStats,
+  flavor: "status" | "rundown" | "afterWorkLock" | "afterSocialLock" | "afterTodo",
+): string {
+  const short = stats.socialMinutes < stats.socialTarget;
+  const room = stats.freeMinutes >= 45;
+  if (flavor === "afterSocialLock") {
+    return "that's usually the kind of block that makes the rest of the day sit better.";
+  }
+  if (flavor === "afterWorkLock") {
+    if (short && room) {
+      return "there's a little open space later if a low-key hang sounds nice — skip it if you're cooked.";
+    }
+    if (short) {
+      return "if this week's already loud, even a short catch-up sometime is plenty. no rush.";
+    }
+    return "";
+  }
+  if (flavor === "status") {
+    if (stats.workMinutes > stats.workCap && short) {
+      return "work ran a bit long. if you've got anything left in the tank, a small social thing can even it out — skip it if you're done for the day.";
+    }
+    if (short && room) {
+      return "there's a pocket of free time. coffee, a walk, a call — only if you'd actually enjoy it.";
+    }
+    if (stats.workMinutes > stats.workCap) {
+      return "work's stacked. a quiet evening still counts.";
+    }
+    return "today looks alright. hope there's something in it that's just for you.";
+  }
+  if (flavor === "afterTodo") {
+    if (short && room) {
+      return " if tonight's still open, it's a sweet window for people — or a book. your call.";
+    }
+    return "";
+  }
+  if (flavor === "rundown" && short && room) {
+    return "\nthere's room for people today if you feel like it. no need to fill it.";
+  }
+  return "";
+}
+
 function sameishTitle(a?: string, b?: string): boolean {
   if (!a || !b) return true;
   const na = a.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -318,8 +368,15 @@ function describeEvent(ev: CalendarEvent): string {
 function lockEventMessage(next: UserRecord, ev: CalendarEvent): ChatMessage {
   next.lastLockedEventId = ev.id;
   const connected = Boolean(next.calendarConnectedAt);
+  const plan = buildDayPlan(next, ev.date);
+  const extra =
+    ev.kind === "social"
+      ? peopleNote(plan.stats, "afterSocialLock")
+      : ev.kind === "work"
+        ? peopleNote(plan.stats, "afterWorkLock")
+        : "";
   return botText(
-    `locked in. *${ev.title}* is on ${prettyDate(ev.date)} at ${formatClock(ev.start)}.\ni'll nudge you here ${next.settings.reminderLeadMinutes} min before${ev.kind === "work" ? " (work)" : ""}.\n\nwant me to *move your tasks* around this, *star* it, or ${connected ? "*add it to your calendar*" : "*connect your calendar*"}? you can also just plan another event.`,
+    `locked in. *${ev.title}* is on ${prettyDate(ev.date)} at ${formatClock(ev.start)}.\ni'll nudge you here ${next.settings.reminderLeadMinutes} min before${ev.kind === "work" ? " (work)" : ""}.${extra ? `\n${extra}` : ""}\n\nwant me to *move your tasks* around this, *star* it, or ${connected ? "*add it to your calendar*" : "*connect your calendar*"}? you can also just plan another event.`,
     {
       buttons: lockFollowupButtons(connected),
       calendarEventId: ev.id,
@@ -713,7 +770,7 @@ export function processTurn(
     const plan = buildDayPlan(next, today);
     push(
       botText(
-        `locked those rules in (${bits}). i'll treat them as non-negotiable unless you change them.\n${statsLine(plan.stats)}`,
+        `locked those in (${bits}). i'll keep them in mind and mention it softly if a day's all work.\n${statsLine(plan.stats)}`,
         {
           type: "schedule",
           date: today,
@@ -728,7 +785,7 @@ export function processTurn(
     const plan = buildDayPlan(next, today);
     push(
       botText(
-        `${prettyDate(today)} *rundown* — ${statsLine(plan.stats)}`,
+        `${prettyDate(today)} *rundown* — ${statsLine(plan.stats)}${peopleNote(plan.stats, "rundown")}`,
         {
           type: "schedule",
           date: today,
@@ -756,7 +813,7 @@ export function processTurn(
     );
   } else if (parsed.intent === "todos") {
     push(
-      botText("your stack, parents first — knock out P0s before you invent more work:", {
+      botText("your stack, parents first. P0s before inventing more work — and leave a little air for people:", {
         type: "todos",
         lines: renderTodos(next),
       }),
@@ -770,9 +827,16 @@ export function processTurn(
       next.todos = next.todos.map((t) =>
         t.id === hit.id ? { ...t, done: true } : t,
       );
-      push(
-        botText(`nice. *${hit.title}* is done. keep the streak without stacking another 3 tasks on top.`),
+      const leftoverHeat = next.todos.some(
+        (t) => !t.done && (t.priority === "p0" || t.starred),
       );
+      const extra = leftoverHeat
+        ? ""
+        : peopleNote(
+            buildDayPlan(next, dateISO(nowInZone(next.settings.timezone))).stats,
+            "afterTodo",
+          );
+      push(botText(`nice. *${hit.title}* is done.${extra}`));
     }
   } else if (parsed.intent === "add_todo") {
     let parentId: string | null = null;
@@ -883,13 +947,9 @@ export function processTurn(
   } else if (parsed.intent === "status") {
     const today = dateISO(nowInZone(next.settings.timezone));
     const plan = buildDayPlan(next, today);
-    const over = plan.stats.workMinutes > plan.stats.workCap;
-    const underSocial = plan.stats.socialMinutes < plan.stats.socialTarget;
     push(
       botText(
-        over || underSocial
-          ? `workaholic check: ${over ? "you're over the work cap. " : ""}${underSocial ? "social time is under goal. " : ""}protect the non-work blocks like they're meetings with someone you like.`
-          : "you're in decent shape today. don't sneak in 'just one more' task.",
+        peopleNote(plan.stats, "status"),
         {
           type: "schedule",
           date: today,
@@ -900,7 +960,7 @@ export function processTurn(
       ),
     );
   } else if (parsed.intent === "chitchat") {
-    push(botText("haha noted. say *give options* if you want the menu, or just text the next thing."));
+    push(botText("haha noted. whenever you want a hang or a rundown, just say."));
   } else {
     push(
       botText(
@@ -957,7 +1017,7 @@ export function dueReminders(user: UserRecord): ChatMessage[] {
         botText(
           e.starred
             ? `★ heads up — starred *${e.title}* starts at ${formatClock(e.start)}. finish this before you slide into the next thing.`
-            : `heads up — *${e.title}* starts at ${formatClock(e.start)} (${e.kind}). wrap what you're doing; this is the reminder you asked for.`,
+            : `heads up — *${e.title}* starts at ${formatClock(e.start)}${e.kind === "social" ? ". hope it's a good one." : ` (${e.kind}). wrap what you're doing; this is the reminder you asked for.`}`,
         ),
       );
     }

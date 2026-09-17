@@ -97,6 +97,11 @@ function writeLocal(store: AppStore) {
 function migrateStore(store: AppStore): AppStore {
   if (store.settings.botDisplayName === "Balance") {
     store.settings.botDisplayName = DEFAULT_APP_SETTINGS.botDisplayName;
+  }
+  if (
+    !store.settings.botAbout ||
+    /work-life wingman|protects social time/i.test(store.settings.botAbout)
+  ) {
     store.settings.botAbout = DEFAULT_APP_SETTINGS.botAbout;
   }
   return store;

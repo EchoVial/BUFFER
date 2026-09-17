@@ -72,7 +72,7 @@ export function WhatsAppApp() {
       {
         id: "boot-1",
         role: "bot",
-        text: "hey — i'm Buffer, your work-life wingman in a WhatsApp skin.\n\nbefore i remember anything: what should i call you? first name is perfect.",
+        text: "hey — i'm Buffer. i keep the calendar straight so there's still room for people, without nagging.\n\nbefore i remember anything: what should i call you? first name is perfect.",
         createdAt: new Date().toISOString(),
         status: "delivered",
       },

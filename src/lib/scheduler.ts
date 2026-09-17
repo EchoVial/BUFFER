@@ -216,7 +216,7 @@ export function buildDayPlan(user: UserRecord, date: string): DayPlan {
       socialBlocks.push({
         startMin: gap.start,
         endMin: gap.start + slice,
-        title: "Protected social time",
+        title: "Space for people",
         kind: "social",
         movable: true,
       });
@@ -261,12 +261,12 @@ export function buildDayPlan(user: UserRecord, date: string): DayPlan {
   }
   if (socialUsed < socialTarget) {
     warnings.push(
-      `Social time is short: ${durationLabel(socialUsed)} locked vs your ${durationLabel(socialTarget)} daily goal.`,
+      `There's still a little room for people today if you want it (${durationLabel(socialUsed)} vs ${durationLabel(socialTarget)}). Skip it if you're wiped.`,
     );
   }
   if (workUsed > s.maxWorkMinutesPerDay) {
     warnings.push(
-      `Work load ${durationLabel(workUsed)} is over your ${durationLabel(s.maxWorkMinutesPerDay)} cap. Buffer would rather you drop or split something.`,
+      `Work is a bit over your ${durationLabel(s.maxWorkMinutesPerDay)} cap (${durationLabel(workUsed)}). Splitting something is optional — just a heads-up.`,
     );
   }
   for (const e of dayEvents) {
@@ -354,7 +354,15 @@ export function proposeEvent(
   }
 
   if (after.overlaps.length) {
-    moves.push("There's a hard overlap — see warnings. We can still lock it if you insist.");
+    moves.push("There's a hard overlap — see warnings. We can still lock it if you want.");
+  }
+  if (
+    event.kind === "work" &&
+    hmToMinutes(event.start) >= hmToMinutes(user.settings.protectEveningsAfter)
+  ) {
+    moves.push(
+      "This sits in evening hours. Fine to keep — only mentioning it in case you wanted that stretch for people.",
+    );
   }
 
   return {
