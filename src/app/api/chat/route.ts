@@ -28,18 +28,8 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ user: saved, replies: result.replies });
 }
 
-export async function PUT(req: NextRequest) {
-  const body = (await req.json()) as { user?: UserRecord };
-  if (!body.user) return NextResponse.json({ error: "Missing user" }, { status: 400 });
-  const saved = await mergeIncomingUser(body.user);
-  return NextResponse.json({ user: saved });
-}
-
-export async function GET(req: NextRequest) {
-  const userId = req.nextUrl.searchParams.get("userId");
-  if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
-  const user = await getUserById(userId);
-  if (!user) return NextResponse.json({ error: "not found" }, { status: 404 });
+/** Reminders, the morning digest and the evening nudge that are due right now; saved onto the user. */
+async function proactive(user: UserRecord) {
   const extra = dueReminders(user);
   const digest = dailyDigest(user);
   if (digest.message) extra.unshift(digest.message);
@@ -61,7 +51,24 @@ export async function GET(req: NextRequest) {
       remindedEventIds: [...extraIds],
       updatedAt: new Date().toISOString(),
     });
-    return NextResponse.json({ user: saved, reminders: extra });
+    return { user: saved, reminders: extra };
   }
-  return NextResponse.json({ user, reminders: [] });
+  return { user, reminders: [] as typeof extra };
+}
+
+/** The client polls with its whole copy of the user, so a fresh serverless instance still knows them. */
+export async function PUT(req: NextRequest) {
+  const body = (await req.json()) as { user?: UserRecord; poll?: boolean };
+  if (!body.user) return NextResponse.json({ error: "Missing user" }, { status: 400 });
+  const saved = await mergeIncomingUser(body.user);
+  if (!body.poll) return NextResponse.json({ user: saved });
+  return NextResponse.json(await proactive(saved));
+}
+
+export async function GET(req: NextRequest) {
+  const userId = req.nextUrl.searchParams.get("userId");
+  if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
+  const user = await getUserById(userId);
+  if (!user) return NextResponse.json({ error: "not found" }, { status: 404 });
+  return NextResponse.json(await proactive(user));
 }

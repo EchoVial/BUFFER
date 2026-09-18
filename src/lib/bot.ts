@@ -13,7 +13,7 @@ import { uid } from "./ids";
 import { understand, understandSetup } from "./understand";
 import { isStandingLanguage, parseRange, workLabelFor, type ParsedMessage } from "./nlp";
 import type { SetupUnderstanding } from "./llm";
-import { dayImage, describeWindow, freeLine, protectPayload, protectedEvent, slotName, standingWork, suggestForFreeTime, suggestionPayload, weekImage, weekView, windowLabel } from "./life";
+import { dayImage, describeWindow, freeLine, protectPayload, protectedEvent, slotName, standingWork, suggestForFreeTime, suggestionLine, suggestionPayload, weekImage, weekView, windowLabel } from "./life";
 import { findNamedItem } from "./match";
 import { buildDayPlan, proposeEvent } from "./scheduler";
 import {
@@ -67,7 +67,7 @@ const B = {
   today: btn("today", "See today", "today"),
   addWork: btn("work", "Mark work hours", "add work"),
   add: btn("add", "Add a plan or to-do", "add something"),
-  ideas: btn("ideas", "Ideas for free time", "what should i do with my free time"),
+  ideas: btn("ideas", "Plan people time", "plan people time"),
   help: btn("help", "How this works", "help"),
   todos: btn("todos", "See my to-dos", "my to-dos"),
   undo: btn("undo", "Undo (remove it)", "undo"),
@@ -88,7 +88,7 @@ const KIND_BUTTONS: ReplyButton[] = [
   btn("social", "It's with people", "it's social"),
   btn("personal", "It's for me", "it's personal"),
 ];
-DEFAULT_BUTTONS.push(B.week, B.today, B.addWork, B.help);
+DEFAULT_BUTTONS.push(B.ideas, B.week, B.today, B.addWork, B.help);
 
 /** The whole menu. Short on purpose: see, tell, more. */
 const START_LIST: InteractiveList = {
@@ -107,6 +107,7 @@ const START_LIST: InteractiveList = {
       rows: [
         { id: "work", title: "Mark work hours", description: "e.g. work 7 to 10pm today", payload: "add work" },
         { id: "add", title: "Add a plan or to-do", description: "dinner with sam fri 8pm · remind me to call nani", payload: "add something" },
+        { id: "ideas", title: "Plan people time", description: "Slots this week for the people you named", payload: "plan people time" },
         { id: "keep", title: "Reserve an evening", description: "I block it so nothing else lands there", payload: "reserve an evening this week" },
         { id: "people", title: "People I call", description: "Who I nudge you to ring when you're free", payload: "who do i call" },
       ],
@@ -133,7 +134,7 @@ function helpText(): string {
     "1. tell me when you work: *work 7 to 10pm today*, *shift 9 to 5 tomorrow*. usual hours: *i usually work 9 to 6*.",
     "2. ask *my week* or *today*. i send a picture.",
     "3. add anything else the same way: *dinner with sam friday 8pm*, *gym tomorrow 7am*. no time means a to-do: *remind me to call nani*.",
-    "4. when you're free after work, i nudge you to call someone. *nudge me to call mum* adds a person.",
+    "4. the point of all this: *plan people time* finds slots this week for the people you named, and when you're free after work i nudge you to call someone. *nudge me to call mum* adds a person.",
     "5. *reserve friday evening* blocks it so nothing else lands there.",
     "",
     "change or finish things in plain words: *move gym to 8pm*, *done with the deck*, *undo*.",
@@ -336,10 +337,11 @@ function commitEvent(next: UserRecord, ev: CalendarEvent, lead?: string, note?: 
   const when = dayWordFor(ev.date, tz);
   const what = ev.kind === "work" ? "marked" : ev.kind === "social" ? "on the calendar" : "added";
   const rest = ` ${freeLine(plan, next)}`;
-  const text = `${lead ?? `${what}. *${ev.title}* ${when}, ${span(ev.start, ev.durationMinutes)}${note ? ` (${note})` : ""}.`}${rest}${tip(next, "save")}`;
+  const nextStep = ev.kind === "work" ? " want to put some people in the rest of it?" : ev.kind === "social" ? " good. that's the bit that matters." : "";
+  const text = `${lead ?? `${what}. *${ev.title}* ${when}, ${span(ev.start, ev.durationMinutes)}${note ? ` (${note})` : ""}.`}${rest}${nextStep}${tip(next, "save")}`;
   return botText(text, {
     card: dayPicture(next, ev.date, ev.title),
-    buttons: [B.undo, B.later30, ev.kind === "work" ? B.week : B.today],
+    buttons: ev.kind === "work" ? [B.ideas, B.undo, B.later30] : [B.undo, B.later30, B.today],
     calendarEventId: ev.id,
   });
 }
@@ -427,8 +429,20 @@ function unwindQuestion(next: UserRecord): ChatMessage {
   });
 }
 
+/** Bare hours like "2" or "02:00" for a switch-off time mean the afternoon or evening. */
+function eveningHM(hm: string): string {
+  const m = hmToMinutes(hm);
+  return m < 10 * 60 ? minutesToHM(m + 12 * 60) : hm;
+}
+
+function notifyQuestion(): ChatMessage {
+  return botText("last thing: can i send you a small nudge in the evening when you're free? tap *Allow nudges* and your browser will ask once.", {
+    buttons: [{ id: "notify", title: "Allow nudges", action: "notify", payload: "notifications on" }, btn("nonotify", "Not now", "notifications off")],
+  });
+}
+
 function peopleQuestion(): ChatMessage {
-  return botText("last one: who should i nudge you to call when you're free? say it however you like: *mum, dad*, *my sister and rohan*, or *remind me to spend time with my roommates too*.", {
+  return botText("now the important one: who should i help you make time for? say it however you like: *mum, dad*, *my sister and rohan*, or *remind me to spend time with my roommates too*.", {
     buttons: [btn("skip", "Skip this", "skip")],
   });
 }
@@ -442,15 +456,15 @@ function finishSetup(next: UserRecord): ChatMessage[] {
   const view = weekView(next);
   const out: ChatMessage[] = [
     botText(
-      `that's the setup. when you're free after ${after}, i'll send one small nudge ${verb} ${who}. never more than once a day.\n\nfrom here, just text me like a friend. for example:\n• *work 7 to 10pm today* or *no class tomorrow*\n• *my week* or *today* for a picture\n• *dinner with sam friday 8pm* for a plan, *remind me to call nani* for a to-do\n\nthe buttons under my replies are shortcuts, never the only way.`,
+      `that's the setup. when you're free after ${after}, i'll send one small nudge ${verb} ${who}. never more than once a day.\n\nfrom here, just text me like a friend:\n• *work 7 to 10pm today* or *no class tomorrow* keeps the work side honest\n• *plan people time* finds slots this week for ${who}\n• *dinner with sam friday 8pm* for a plan, *remind me to call nani* for a to-do\n• *my week* or *today* for a picture\n\nthe buttons under my replies are shortcuts, never the only way.`,
     ),
     botText(
       view.totalWork
-        ? `here's your week so far. green is free, grey is work.${tip(next, "picture")}`
+        ? `here's your week. green is free, grey is work. the green is what we're here for.${tip(next, "picture")}`
         : `here's your week so far. nothing is marked as work yet, so it all looks open. add your work and this gets real.${tip(next, "picture")}`,
       {
         card: weekImage(view, next),
-        buttons: [B.addWork, B.today, B.help],
+        buttons: view.totalWork ? [B.ideas, B.addWork, B.help] : [B.addWork, B.ideas, B.help],
       },
     ),
   ];
@@ -463,15 +477,15 @@ function applySetup(next: UserRecord, a: SetupUnderstanding): ChatMessage[] {
   const gotWork = Boolean((a.work_start && a.work_end) || a.work_varies);
   if (a.work_start && a.work_end) next.settings = { ...next.settings, workStart: a.work_start, workEnd: a.work_end, workLabel: a.work_label || "Work" };
   else if (a.work_varies) next.settings = { ...next.settings, workStart: "00:00", workEnd: "00:00" };
-  if (a.unwind) next.settings = { ...next.settings, protectEveningsAfter: a.unwind, noWorkAfter: a.unwind };
+  if (a.unwind) next.settings = { ...next.settings, protectEveningsAfter: eveningHM(a.unwind), noWorkAfter: eveningHM(a.unwind) };
   if (a.people?.length) {
     const have = new Set((next.people ?? []).map((n) => n.toLowerCase()));
     next.people = [...(next.people ?? []), ...a.people.map(cap).filter((n) => !have.has(n.toLowerCase()))].slice(0, 6);
   }
   const answered = {
     work: gotWork || step !== "work",
-    unwind: Boolean(a.unwind) || step === "people",
-    people: Boolean(a.people?.length) || (step === "people" && a.skip),
+    unwind: Boolean(a.unwind) || step === "people" || step === "notify",
+    people: Boolean(a.people?.length) || (step === "people" && a.skip) || step === "notify",
   };
   // Skipping the current question counts as answered.
   if (a.skip) {
@@ -491,7 +505,8 @@ function applySetup(next: UserRecord, a: SetupUnderstanding): ChatMessage[] {
     next.onboarding = "people";
     out.push(peopleQuestion());
   } else {
-    out.push(...finishSetup(next));
+    next.onboarding = "notify";
+    out.push(notifyQuestion());
   }
   return out;
 }
@@ -501,7 +516,18 @@ async function handleOnboarding(next: UserRecord, text: string): Promise<ChatMes
   const step = next.onboarding;
   const t = text.toLowerCase().trim();
   if (!step || step === "done") return null;
-  // Claude reads the answer when a key is set: loose wording, several answers at once, side questions.
+  if (step === "notify") {
+    if (/^notifications on$/.test(t) || /\b(allow|allowed|yes|sure|ok|okay|go ahead)\b/.test(t)) {
+      next.notify = true;
+      return [botText(`done. i'll pop up after ${clockShort(next.settings.protectEveningsAfter || "19:00")} on the days you're free.`), ...finishSetup(next)];
+    }
+    if (/^notifications off$/.test(t) || /\b(no|not now|later|skip|nah|nope|don't|dont)\b/.test(t)) {
+      next.notify = false;
+      return [botText("no problem. i'll say it here in the chat instead."), ...finishSetup(next)];
+    }
+    return [botText("tap *Allow nudges* or *Not now*, and then we're done.", { buttons: notifyQuestion().buttons })];
+  }
+  // The model reads the answer when one is configured: loose wording, several answers at once, side questions.
   const smart = await understandSetup(step, text, next);
   if (smart) return applySetup(next, smart);
   // Let them escape the questions with the things they might type anyway.
@@ -546,7 +572,9 @@ async function handleOnboarding(next: UserRecord, text: string): Promise<ChatMes
   if (step === "people") {
     const people = parsePeople(text);
     next.people = people;
-    return finishSetup(next);
+    next.onboarding = "notify";
+    const list = people.length > 1 ? `${people.slice(0, -1).join(", ")} and ${people[people.length - 1]}` : people[0];
+    return [botText(people.length ? `${list}. got it.` : "ok, no one for now. *nudge me to call mum* adds someone any time."), notifyQuestion()];
   }
   return null;
 }
@@ -579,6 +607,13 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     replies.push(...(Array.isArray(m) ? m : [m]));
   };
   const done = () => {
+    // A picture is its own bubble, sent first; the words and buttons come after it.
+    for (let i = replies.length - 1; i >= 0; i--) {
+      const m = replies[i];
+      if (m.card?.type === "image" && m.text.trim()) {
+        replies.splice(i, 1, { ...m, id: uid("msg"), text: "", buttons: undefined, list: undefined }, { ...m, card: undefined });
+      }
+    }
     // Three buttons under the reply (the last bubble): the ones the branch chose, then the most useful defaults.
     const settingUp = Boolean(next.onboarding && next.onboarding !== "done");
     const i = replies.length - 1;
@@ -649,6 +684,11 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
   }
   if (/^add something$/.test(lower)) {
     push(botText("sure. what and when?\n• *dinner with sam friday 8pm*\n• *gym tomorrow 7am*\n• *remind me to renew my passport* (no time = a to-do)"));
+    return done();
+  }
+  if (/^notifications (on|off)$/.test(lower)) {
+    next.notify = lower.endsWith("on");
+    push(botText(next.notify ? `nudges on. i'll pop up after ${clockShort(next.settings.protectEveningsAfter || "19:00")} on the days you're free.` : "nudges off. i'll still say it here in the chat."));
     return done();
   }
   if (/^who do i call\??$/.test(lower)) {
@@ -740,18 +780,20 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     push(
       botText(`${lead}${best}${nudge}${view.best.length ? tip(next, "keep") : ""}${tip(next, "picture")}`, {
         card: weekImage(view, next),
-        buttons: [...buttons, B.ideas].slice(0, 3),
+        buttons: [B.ideas, ...buttons].slice(0, 3),
       }),
     );
   } else if (parsed.intent === "plan_free") {
     const view = weekView(next);
     const picks = suggestForFreeTime(next, view);
     if (!picks.length) {
-      push(botText("i can't find a 45-minute gap in the next week. say *reserve thursday evening* and i'll make one.", { buttons: [btn("keep", "Reserve an evening", "reserve an evening this week")] }));
+      push(botText("i can't find a 30-minute gap in the next week. say *reserve thursday evening* and i'll make one.", { buttons: [btn("keep", "Reserve an evening", "reserve an evening this week")] }));
     } else {
-      const lines = picks.map((p) => `• *${p.title}* · ${windowLabel(p.window)} · ${p.why}`);
+      const who = (next.people ?? []).length ? "" : "\n(tell me who matters with *nudge me to call mum* and these get personal.)";
+      const lines = picks.map((p) => `• ${suggestionLine(p)}`);
       push(
-        botText(`a few ways to use the room you have:\n${lines.join("\n")}\n\ntap one and i'll put it on your calendar.`, {
+        botText(`here's where people could go this week:\n${lines.join("\n")}\n\ntap one and it's on your calendar. or tell me your own: *dinner with sam friday 8pm*.${who}`, {
+          card: weekImage(view, next),
           buttons: picks.map((p, i) => btn(`idea-${i}`, p.label, suggestionPayload(p, tz))),
         }),
       );
@@ -787,6 +829,8 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
       }),
     );
   } else if (parsed.intent === "set_pref") {
+    if (parsed.prefs.protectEveningsAfter) parsed.prefs.protectEveningsAfter = eveningHM(parsed.prefs.protectEveningsAfter);
+    if (parsed.prefs.noWorkAfter) parsed.prefs.noWorkAfter = eveningHM(parsed.prefs.noWorkAfter);
     next.settings = { ...next.settings, ...parsed.prefs };
     if (next.draft.type === "event" && parsed.prefs.workStart) next.draft = { type: "none", missing: [] };
     const p = parsed.prefs;

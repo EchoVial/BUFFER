@@ -577,8 +577,9 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
   ) {
     intent = "protect";
   } else if (
-    /\b(what should i do|ideas? for|suggest|something to do|what to do with)\b/.test(normalized) &&
-    /\b(free|evening|weekend|time|tonight|today|tomorrow)\b/.test(normalized)
+    (/\b(what should i do|ideas? for|suggest|something to do|what to do with)\b/.test(normalized) &&
+      /\b(free|evening|weekend|time|tonight|today|tomorrow)\b/.test(normalized)) ||
+    /\b(plan (?:some |my )?(?:people|social|friend|family) time|people time|plan (?:something |time )?with (?:friends|people|family|my friends|my family)|help me plan my (?:social life|evenings|weekend)|social life|see my friends|see people)\b/.test(normalized)
   ) {
     intent = "plan_free";
   } else if (/\b(when am i free|am i free|free time|how's my week|hows my week|my week|this week|week ahead|next 7 days|whole week)\b/.test(normalized)) {

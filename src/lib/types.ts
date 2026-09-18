@@ -53,7 +53,7 @@ export interface ReplyButton {
   id: string;
   title: string;
   payload?: string;
-  action?: "reply" | "google-cal" | "ics" | "connect-feed" | "outlook-cal";
+  action?: "reply" | "google-cal" | "ics" | "connect-feed" | "outlook-cal" | "notify";
 }
 
 export interface ListRow {
@@ -199,8 +199,10 @@ export interface UserRecord {
   notes?: string;
   /** Date (YYYY-MM-DD, user tz) of the last morning digest, so it goes out once a day. */
   lastDigestDate?: string;
-  /** First-run questions: work hours, unwind time, who to call. Missing = done (older users). */
-  onboarding?: "work" | "unwind" | "people" | "done";
+  /** First-run questions: work hours, unwind time, who to call, nudges allowed. Missing = done (older users). */
+  onboarding?: "work" | "unwind" | "people" | "notify" | "done";
+  /** They allowed browser notifications for the evening nudge. */
+  notify?: boolean;
   /** People Buffer nudges them to call when they are free (from onboarding or chat). */
   people?: string[];
   /** One-line explanations already shown, so each feature is explained once. */

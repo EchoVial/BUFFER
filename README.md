@@ -4,13 +4,14 @@ WhatsApp-style assistant. You tell it when you work; it shows you when you are a
 
 ## First run
 
-Three questions, with tap-to-answer buttons: when do you usually work (`9 to 5`, `7pm to 10pm`, or *It varies*), when do you switch off in the evening, and who should Buffer nudge you to call. Everything after that is plain text:
+Four questions, with tap-to-answer buttons: when do you usually work (`9 to 5`, `7pm to 10pm`, or *It varies*), when do you switch off in the evening, who should Buffer help you make time for, and whether it may send browser notifications for the evening nudge (*Allow nudges* asks the browser once). Everything after that is plain text:
 
 - `work 7 to 10pm today`, `shift 9 to 5 tomorrow`: marks work. No confirmation step unless it clashes with something.
 - `every weekday from 9am to 5pm i have class`, `i usually work 9 to 6`, or `all weekdays` when asked which day: standing hours. They show as a block (Class, Shift or Work) on every weekday until a marked block overlaps them; `no class tomorrow` or `off friday` clears one day, `class is back on tuesday` restores it.
 - `my week`, `today`, `tomorrow`: a picture. The week is free (green) stacked on work (grey) per day; a day is a strip plus the blocks as a list.
 - `dinner with sam friday 8pm`, `gym tomorrow 7am`: plans. `remind me to call nani`: a to-do (no time).
 - `reserve friday evening` (or `keep friday evening free`): a *Reserved for you* block so nothing else gets planned there.
+- `plan people time`: a slot this week for each person you named (a call for a person, an evening for a group), tap one and it is on the calendar. This is the point; marking work is what makes the slots honest, and every work reply ends with this offer.
 - `undo`, `+30 min`, `make it 2h`, `move gym to 8pm`, `done with the deck`: changes in plain words.
 - `nudge me to call mum`, `who do i call`: the people behind the evening nudge.
 
@@ -37,7 +38,7 @@ With a model set, it also reads the three setup answers (loose wording, several 
 
 `src/lib/understand.ts` sends each message, with the user's timezone, settings, upcoming events, open to-dos, remembered facts and the last few messages, to the model (`src/lib/llm.ts`, structured output) and gets back one typed action: intent, title, date, time, length, kind, or a single clarifying question with quick-reply buttons. The scheduler (`src/lib/scheduler.ts`, `src/lib/life.ts`) then does the calendar arithmetic deterministically. Without a model the regex parser in `src/lib/nlp.ts` takes over, so the demo never breaks. Setup answers, button payloads and one-word commands (`undo`, `today`) are handled before either parser runs.
 
-The evening nudge (`unwindNudge` in `src/lib/bot.ts`) fires from the client poll (`GET /api/chat`) once a day, in the 90 minutes after the switch-off time, only when nothing is on. On real WhatsApp this would be a scheduled job hitting the same function.
+Pictures are sent as their own bubble first; the words and the three buttons follow. The evening nudge (`unwindNudge` in `src/lib/bot.ts`) fires from the client poll (`PUT /api/chat` with the browser's copy of the user, every 30 s) once a day, in the 90 minutes after the switch-off time, only when nothing is on; with notifications allowed it also shows as a browser notification while the tab is open. On real WhatsApp this would be a scheduled job hitting the same function.
 
 Try the brain without the UI: `npx tsx scripts/try-bot.mjs "9 to 5" "6pm" "mum, dad" "work 7 to 10pm today" "today"`.
 

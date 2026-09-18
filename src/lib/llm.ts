@@ -402,7 +402,8 @@ const FEATURES = `What Buffer can do (answer questions about itself from this, n
 - "my week" / "today" / "tomorrow" send a picture: the week as bars (green free, grey work), a day as a strip plus the blocks.
 - Plans with a time ("dinner with sam friday 8pm") and to-dos without one ("remind me to renew my passport"). Everything saves immediately; "undo", "push 30 min later", "make it 2h", "move gym to 8pm", "done with the deck" change things.
 - "reserve friday evening" puts a block called "Reserved for you" on the calendar so nothing else gets planned there.
-- Once a day, in the 90 minutes after your switch-off time, if nothing is on, it nudges you to call one of your people ("nudge me to call mum" adds someone; "who do i call" lists them).
+- "plan people time" finds a slot this week for each person you named (a call for a person, an evening for a group) and puts the one you tap on your calendar. This is the point of Buffer: work goes in so the people time can be planned around it.
+- Once a day, in the 90 minutes after your switch-off time, if nothing is on, it nudges you to call one of your people ("nudge me to call mum" adds someone; "who do i call" lists them). With browser notifications allowed, the nudge also pops up outside the chat.
 - "connect calendar" gives a private feed for Google, Apple, Android and Outlook; everything Buffer saves shows up there within about 15 minutes.
 - Standing work or class hours ("every weekday 9 to 5") repeat on weekdays automatically; "no class tomorrow" or "off friday" clears them for that day. Other plans do not repeat yet; each one is added on its day.
 - It does not read your existing calendar yet, does not send messages to other people, and has no voice or photo input yet.`;
@@ -429,7 +430,7 @@ Intent guide:
 - schedule: today's or a given day's rundown ("what's today", "rundown", "how does friday look", or just "today" / "tomorrow").
 - week: the week ahead / free time this week ("how's my week", "when am i free", "free time this week").
 - free_time: same as week when they ask specifically when they are free (a day or the week).
-- plan_free: they want ideas for their free time or ask what to do with it ("what should i do this weekend", "i have a free evening", "suggest something").
+- plan_free: they want to plan time with people or ask what to do with free time ("plan people time", "help me see my friends this week", "what should i do this weekend", "i have a free evening"). Buffer answers with slots for the people they named.
 - protect: reserve time for themselves or people ("keep thursday evening free", "reserve sunday for me", "protect my evenings"). Fill date/start/duration if given; kind = social or personal.
 - set_pref: standing rules about their days ("i usually work 9 to 6", "2 hours for people daily", "no work after 8", "i wind down at 8"). "i wind down / unwind / switch off at 8pm" = prefs.protectEveningsAfter and noWorkAfter = "20:00".
 - day_off: no standing work/class on a day ("no class tomorrow", "off today", "holiday on friday", "classes cancelled"): date = that day (today if none). Buffer drops the standing block for that day.

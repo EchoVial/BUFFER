@@ -120,54 +120,40 @@ export interface Suggestion {
   why: string;
 }
 
+const isGroupName = (n: string) => /^(roommates?|flatmates?|housemates?|friends|family|cousins|parents|siblings|the boys|the girls|the gang|team|mates)$/i.test(n.trim());
+const weekdayLong = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", { weekday: "long" });
+
 /**
- * Ideas for the free time, shaped by what the week is missing: people first
- * when the social target is behind, then movement, then an hour that is
- * simply theirs. Remembered facts (notes) nudge the wording.
+ * People first: one slot this week for each person they named (a call for a
+ * person, an evening or weekend stretch for a group), then a friend, then a
+ * walk. Each idea gets its own free window so they do not pile up.
  */
 export function suggestForFreeTime(user: UserRecord, view: WeekView): Suggestion[] {
   const notes = (user.notes || "").toLowerCase();
-  const socialGap = view.totalSocial < user.settings.socialMinutesPerDay * 3;
-  const hasHealth = user.events.some((e) => e.kind === "health" && e.date >= view.from);
-  const pool: Array<{ title: string; label: string; kind: EventKind; minutes: number; why: string; prefer: FreeWindow["slot"][] }> = [];
-  const friend = notes.match(/friend[s]?:?\s*([a-z][a-z .]+)/)?.[1]?.split(/[ ,.]/)[0];
-  const people = user.people?.length ? user.people : friend ? [friend] : [];
   const cap = (n: string) => n.charAt(0).toUpperCase() + n.slice(1);
-  pool.push({
-    title: people[0] ? `Call ${cap(people[0])}` : "Dinner or a call with a friend",
-    label: people[0] ? `Plan a call to ${cap(people[0])}`.slice(0, 20) : "Plan time with a friend".slice(0, 20),
-    kind: "social",
-    minutes: 45,
-    why: socialGap ? "you have not had much people time this week" : "keeps the week from being only work",
-    prefer: ["evening", "weekend"],
-  });
-  if (people[1]) {
-    pool.push({ title: `Call ${cap(people[1])}`, label: `Plan a call to ${cap(people[1])}`.slice(0, 20), kind: "social", minutes: 30, why: "a short one counts", prefer: ["evening", "weekend", "day"] });
+  const people = (user.people ?? []).slice(0, 3);
+  const pool: Array<{ title: string; short: string; kind: EventKind; minutes: number; why: string; prefer: FreeWindow["slot"][] }> = [];
+  for (const p of people) {
+    if (isGroupName(p)) {
+      pool.push({ title: `Time with ${p.toLowerCase()}`, short: cap(p), kind: "social", minutes: 120, why: `an evening with your ${p.toLowerCase()}`, prefer: ["evening", "weekend"] });
+    } else {
+      pool.push({ title: `Call ${cap(p)}`, short: `Call ${cap(p)}`, kind: "social", minutes: 30, why: `${cap(p)} would love it`, prefer: ["evening", "weekend", "day"] });
+    }
   }
-  pool.push({
-    title: /run|gym|yoga|swim|cycl/.test(notes) ? "Move: gym, run or a long walk" : "A long walk, no headphones",
-    label: /run|gym|yoga|swim|cycl/.test(notes) ? "Plan a workout" : "Plan a long walk",
-    kind: "health",
-    minutes: 45,
-    why: hasHealth ? "one more turn for the body" : "nothing for your body is on the calendar yet",
-    prefer: ["day", "weekend", "evening"],
-  });
-  pool.push({
-    title: "An hour that is yours",
-    label: "Book an hour for me",
-    kind: "personal",
-    minutes: 60,
-    why: "no screens, no to-dos, whatever you like",
-    prefer: ["evening", "weekend"],
-  });
-  if (!people.length) {
+  if (pool.length < 3) {
+    pool.push({ title: "Coffee with a friend", short: "Friend coffee", kind: "social", minutes: 60, why: "someone you have not seen in a while", prefer: ["weekend", "evening", "day"] });
+  }
+  if (pool.length < 3) {
+    pool.push({ title: "Call home", short: "Call home", kind: "social", minutes: 30, why: "a call home counts", prefer: ["evening", "weekend"] });
+  }
+  if (pool.length < 3) {
     pool.push({
-      title: "Call home",
-      label: "Plan a call home",
-      kind: "social",
-      minutes: 30,
-      why: "a call home counts",
-      prefer: ["weekend", "evening"],
+      title: /run|gym|yoga|swim|cycl/.test(notes) ? "Gym or a run" : "A long walk",
+      short: /run|gym|yoga|swim|cycl/.test(notes) ? "Workout" : "Long walk",
+      kind: "health",
+      minutes: 45,
+      why: "not everything has to be people",
+      prefer: ["day", "weekend", "evening"],
     });
   }
 
@@ -176,13 +162,29 @@ export function suggestForFreeTime(user: UserRecord, view: WeekView): Suggestion
   for (const p of pool) {
     const w =
       view.best.find((x) => !used.has(`${x.date}${x.startMin}`) && p.prefer.includes(x.slot) && x.endMin - x.startMin >= p.minutes) ??
-      view.best.find((x) => !used.has(`${x.date}${x.startMin}`) && x.endMin - x.startMin >= p.minutes);
+      view.best.find((x) => !used.has(`${x.date}${x.startMin}`) && x.endMin - x.startMin >= p.minutes) ??
+      view.days.flatMap((d) => d.windows).find((x) => !used.has(`${x.date}${x.startMin}`) && x.endMin - x.startMin >= p.minutes);
     if (!w) continue;
     used.add(`${w.date}${w.startMin}`);
-    picks.push({ title: p.title, label: p.label, kind: p.kind, window: w, durationMinutes: p.minutes, why: p.why });
+    // A sensible clock time inside the window: nobody wants a call at 7:30 on a Saturday morning.
+    // Calls: a little after switching off on weekdays, late morning on weekends. Long things: the evening, or weekend afternoon.
+    const unwind = hmToMinutes(user.settings.protectEveningsAfter || "19:00");
+    const wanted = w.slot === "weekend" ? (p.minutes <= 45 ? 11 * 60 : 17 * 60) : p.minutes <= 45 ? unwind + 30 : unwind;
+    let startMin = Math.max(w.startMin, wanted);
+    if (startMin + p.minutes > w.endMin) startMin = Math.max(w.startMin, w.slot === "weekend" && p.minutes > 45 ? 12 * 60 : w.startMin);
+    if (startMin + p.minutes > w.endMin) startMin = w.startMin;
+    startMin = Math.ceil(startMin / 15) * 15;
+    const window: FreeWindow = { ...w, startMin, endMin: Math.min(w.endMin, startMin + p.minutes) };
+    const label = `${p.short} ${weekdayShort(w.date)} ${shortClock(minutesToHM(startMin)).replace(/\s/g, "")}`.slice(0, 20);
+    picks.push({ title: p.title, label, kind: p.kind, window, durationMinutes: p.minutes, why: p.why });
     if (picks.length === 3) break;
   }
   return picks;
+}
+
+/** "Call Mom · Tuesday 7:30 to 8 pm" */
+export function suggestionLine(s: Suggestion): string {
+  return `*${s.title}* · ${weekdayLong(s.window.date)} ${shortClock(minutesToHM(s.window.startMin))} to ${shortClock(minutesToHM(s.window.startMin + s.durationMinutes))}`;
 }
 
 /** "today" / "tomorrow" / "friday": words both the rule parser and Claude resolve the same way inside a 7-day window. */

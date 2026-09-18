@@ -150,12 +150,23 @@ export function WhatsAppApp() {
   useEffect(() => {
     if (!user) return;
     const t = setInterval(async () => {
-      const res = await fetch(`/api/chat?userId=${user.id}`);
+      // Send our copy: the server forgets users between cold starts, the browser does not.
+      const res = await fetch("/api/chat", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user, poll: true }) });
       if (!res.ok) return;
-      const data = await res.json();
+      const data = (await res.json()) as { user: UserRecord; reminders?: ChatMessage[] };
       if (data.reminders?.length) {
         setUser(data.user);
         persist(data.user);
+        if (data.user.notify && typeof Notification !== "undefined" && Notification.permission === "granted") {
+          for (const m of data.reminders) {
+            const body = m.text.replace(/\*/g, "").split("\n")[0].slice(0, 140);
+            try {
+              new Notification("Buffer", { body, tag: m.id, icon: "/favicon.ico" });
+            } catch {
+              /* the page is not allowed to show one right now */
+            }
+          }
+        }
       }
     }, 30000);
     return () => clearInterval(t);
@@ -357,6 +368,21 @@ export function WhatsAppApp() {
     }
     if (button.action === "connect-feed") {
       setCalOpen(true);
+      return;
+    }
+    if (button.action === "notify") {
+      void (async () => {
+        let granted = false;
+        try {
+          if (typeof Notification !== "undefined") {
+            const result = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+            granted = result === "granted";
+          }
+        } catch {
+          granted = false;
+        }
+        await send(granted ? "notifications on" : "notifications off");
+      })();
       return;
     }
     void send(button.payload || button.title);
@@ -906,9 +932,11 @@ function Bubble({
           {message.card?.type === "image" ? (
             <>
               <MessageCards message={message} />
-              <div className="mt-1 whitespace-pre-wrap break-words px-1 text-[14.2px] leading-[19px] text-(--wa-text) [overflow-wrap:anywhere]">
-                <WhatsAppText text={message.text} />
-              </div>
+              {message.text.trim() ? (
+                <div className="mt-1 whitespace-pre-wrap break-words px-1 text-[14.2px] leading-[19px] text-(--wa-text) [overflow-wrap:anywhere]">
+                  <WhatsAppText text={message.text} />
+                </div>
+              ) : null}
             </>
           ) : (
             <>
