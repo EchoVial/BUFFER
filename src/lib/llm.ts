@@ -221,7 +221,36 @@ function extractJson(text: string): unknown {
       }
     }
   }
+  // Small models sometimes leak stray glyphs between tokens ("ння" in the whitespace).
+  // Drop anything outside strings that JSON has no use for, then try once more.
+  const scrubbed = scrubJson(cleaned);
+  if (scrubbed !== cleaned) {
+    try {
+      return extractJson(scrubbed);
+    } catch {
+      /* fall through */
+    }
+  }
   throw new Error(`no json in reply: ${cleaned.slice(0, 200)}`);
+}
+
+function scrubJson(text: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (const ch of text) {
+    if (inString) {
+      out += ch;
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (!/[{}\[\]:,\s0-9.+\-eEtrufalsn]/.test(ch)) continue;
+    out += ch;
+  }
+  return out;
 }
 
 /** The assistant text out of a chat completion, whichever shape the provider used. */

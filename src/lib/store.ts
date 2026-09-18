@@ -132,6 +132,49 @@ export async function getStore(): Promise<AppStore> {
   return g.__balanceStoreLoad;
 }
 
+/** Re-read the shared store so a warm instance does not act on a stale copy (other instances write too). */
+export async function refreshStore(): Promise<AppStore> {
+  const g = globalThis as GlobalWithStore;
+  const fromKv = await kvGet();
+  if (fromKv) g.__balanceStore = migrateStore(fromKv);
+  return getStore();
+}
+
+const localLocks = new Map<string, Promise<void>>();
+
+/**
+ * Run `fn` while holding a lock on `key` (a phone number): two webhook calls
+ * for the same person then take turns instead of both creating them or
+ * overwriting each other's save. Redis SET NX when we have it, a promise chain
+ * in this process otherwise. The lock expires on its own if a run dies.
+ */
+export async function withLock<T>(key: string, fn: () => Promise<T>, waitMs = 40_000): Promise<T> {
+  if (!kvCreds()) {
+    const prev = localLocks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const mine = new Promise<void>((r) => (release = r));
+    localLocks.set(key, prev.then(() => mine));
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (localLocks.get(key) === mine) localLocks.delete(key);
+    }
+  }
+  const lockKey = `${KV_KEY}:lock:${key}`;
+  const deadline = Date.now() + waitMs;
+  while ((await kvCommand(["SET", lockKey, "1", "NX", "PX", 45_000])) !== "OK") {
+    if (Date.now() > deadline) break; // rather answer late than never
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  try {
+    return await fn();
+  } finally {
+    await kvCommand(["DEL", lockKey]);
+  }
+}
+
 export async function saveStore(store: AppStore) {
   const g = globalThis as GlobalWithStore;
   g.__balanceStore = store;

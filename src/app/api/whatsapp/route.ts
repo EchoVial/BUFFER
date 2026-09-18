@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { beginChat, processTurn } from "@/lib/bot";
-import { createWhatsAppUser, deleteUser, getUserByPhone, upsertUser } from "@/lib/store";
+import { createWhatsAppUser, deleteUser, getUserByPhone, refreshStore, upsertUser, withLock } from "@/lib/store";
 import { originFromRequest } from "@/lib/calendar";
 import { deliver, incomingText, markRead, sendText, timezoneForPhone, waConfigured, type WaWebhook } from "@/lib/wa";
 
@@ -42,7 +42,12 @@ export async function POST(req: NextRequest) {
     after(async () => {
       for (const { message, profileName } of work) {
         try {
-          await handle(message, profileName, origin);
+          if (!message.from) continue;
+          // One turn at a time per person: Meta may deliver a backlog as parallel calls.
+          await withLock(message.from, async () => {
+            await refreshStore();
+            await handle(message, profileName, origin);
+          });
         } catch (err) {
           console.warn("[buffer] whatsapp handle failed", err instanceof Error ? err.message : err);
         }
@@ -53,6 +58,14 @@ export async function POST(req: NextRequest) {
 }
 
 type WaMessage = Parameters<typeof incomingText>[0];
+
+/** Send the bubbles of one turn in order, with a beat between them so it reads like a person, not a burst. */
+async function sendAll(user: Parameters<typeof deliver>[0], msgs: Parameters<typeof deliver>[1][], origin: string) {
+  for (let i = 0; i < msgs.length; i++) {
+    if (i) await new Promise((r) => setTimeout(r, 450));
+    await deliver(user, msgs[i], origin);
+  }
+}
 
 async function handle(message: WaMessage, profileName: string | undefined, origin: string) {
   const phone = message.from;
@@ -66,13 +79,13 @@ async function handle(message: WaMessage, profileName: string | undefined, origi
     user = beginChat(await createWhatsAppUser(phone, profileName || "there", timezoneForPhone(phone)));
     user.waSeen = [message.id];
     user = await upsertUser(user);
-    for (const m of user.messages.filter((m) => m.role === "bot")) await deliver(user, m, origin);
+    await sendAll(user, user.messages.filter((m) => m.role === "bot"), origin);
     const text = incomingText(message);
     if (!text || /^(hi|hello|hey|hii|start|yo|namaste)\b/i.test(text)) return;
     // They opened with something real ("9 to 5"); treat it as the first answer.
     const turn = await processTurn(user, text);
     user = await upsertUser({ ...turn.user, waSeen: [...(turn.user.waSeen ?? []), message.id].slice(-30) });
-    for (const m of turn.replies) await deliver(user, m, origin);
+    await sendAll(user, turn.replies, origin);
     return;
   }
 
@@ -89,5 +102,5 @@ async function handle(message: WaMessage, profileName: string | undefined, origi
   }
   const turn = await processTurn(user, text);
   const saved = await upsertUser({ ...turn.user, waSeen: [...(turn.user.waSeen ?? []), message.id].slice(-30) });
-  for (const m of turn.replies) await deliver(saved, m, origin);
+  await sendAll(saved, turn.replies, origin);
 }
