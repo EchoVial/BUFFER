@@ -156,6 +156,37 @@ export async function getUserByCalendarToken(
   return Object.values((await getStore()).users).find((u) => u.calendarToken === token);
 }
 
+export async function getUserByPhone(phone: string): Promise<UserRecord | undefined> {
+  const digits = phone.replace(/\D/g, "");
+  return Object.values((await getStore()).users).find((u) => u.waPhone === digits);
+}
+
+/** A WhatsApp person: keyed by phone, so two people called Ved do not collide. */
+export async function createWhatsAppUser(phone: string, name: string, timezone: string): Promise<UserRecord> {
+  const digits = phone.replace(/\D/g, "");
+  const existing = await getUserByPhone(digits);
+  if (existing) return existing;
+  const store = await getStore();
+  const now = new Date().toISOString();
+  const user: UserRecord = {
+    id: uid("user"),
+    name: name.trim() || "there",
+    nameKey: `wa:${digits}`,
+    createdAt: now,
+    updatedAt: now,
+    lastSeenAt: now,
+    settings: { ...store.settings.defaultUserSettings, ...DEFAULT_USER_SETTINGS, timezone },
+    events: [],
+    todos: [],
+    messages: [],
+    draft: { type: "none", missing: [] },
+    remindedEventIds: [],
+    waPhone: digits,
+    waSeen: [],
+  };
+  return upsertUser(user);
+}
+
 export async function getUserByName(name: string): Promise<UserRecord | undefined> {
   const key = nameKey(name);
   const store = await getStore();

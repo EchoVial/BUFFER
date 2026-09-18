@@ -749,6 +749,10 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     push(botText(`ok. i'll ping you at ${clockShort(start)} for *Call ${who}*.`, { buttons: [B.undo, B.today] }));
     return done();
   }
+  if (/^(?:nudge|remind|prompt) me to call\s*$/.test(lower)) {
+    push(botText("who should i nudge you about? type a name or two, like *mum* or *my sister and rohan*."));
+    return done();
+  }
   const addPerson = lower.match(/^(?:nudge|remind|prompt) me to call (.+?)(?: when i'?m free| when i am free| sometimes| more)?\.?$/);
   if (addPerson) {
     const names = parsePeople(addPerson[1]);

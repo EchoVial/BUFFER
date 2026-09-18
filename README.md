@@ -34,6 +34,16 @@ Nothing set means the regex parser (`src/lib/nlp.ts`), which handles the button 
 
 With a model set, it also reads the three setup answers (loose wording, several answers at once, side questions), writes the reply itself for chitchat, questions about Buffer or your schedule, greetings and anything it could not map to an action, adds a short opening clause to action replies when the message carried a mood or a detail, and picks up people mentioned in passing ("...and remind me to spend some time with my roommates too") into the nudge list.
 
+## Buffer on WhatsApp
+
+The same brain answers on real WhatsApp through Meta's Cloud API, using the free **test number** Meta gives every app, so nobody needs a second phone: up to five verified phones can chat with it. Three routes do the work:
+
+- `POST /api/whatsapp`: Meta's webhook. Text and button taps come in, `processTurn` runs, replies go back as WhatsApp messages: pictures as PNG (`/api/picture/<card>.png`, rendered with `next/og`), text with up to three reply buttons, the menu as a list.
+- `GET /api/whatsapp`: the webhook verification handshake (`WA_VERIFY_TOKEN`).
+- `GET /api/whatsapp/tick`: sends due reminders, the morning digest and the evening nudge to every WhatsApp user. `docs/tick-workflow.yml` is a GitHub Actions workflow that calls it every 15 minutes; copy it to `.github/workflows/tick.yml` (pushing workflow files needs a GitHub token with the `workflow` scope, so it is not committed there directly).
+
+Setup, in order: (1) a database, because WhatsApp users must survive server restarts: Vercel project > Storage > Create Database > Upstash Redis (free), then redeploy. (2) developers.facebook.com > Create app (type Business) > add the WhatsApp product > API Setup: copy the **Phone number ID** and a token, and add your own number under "To" (Meta sends a code to your WhatsApp). (3) In Vercel add `WA_PHONE_ID`, `WA_TOKEN`, `WA_VERIFY_TOKEN`, redeploy. (4) Meta > WhatsApp > Configuration: callback URL `https://<your-app>/api/whatsapp`, your verify token, subscribe to `messages`. (5) Message the test number from your phone. The temporary token expires after 24 hours; for a permanent one create a System User in Meta Business Settings with `whatsapp_business_messaging` and `whatsapp_business_management`.
+
 ## How it understands you
 
 `src/lib/understand.ts` sends each message, with the user's timezone, settings, upcoming events, open to-dos, remembered facts and the last few messages, to the model (`src/lib/llm.ts`, structured output) and gets back one typed action: intent, title, date, time, length, kind, or a single clarifying question with quick-reply buttons. The scheduler (`src/lib/scheduler.ts`, `src/lib/life.ts`) then does the calendar arithmetic deterministically. Without a model the regex parser in `src/lib/nlp.ts` takes over, so the demo never breaks. Setup answers, button payloads and one-word commands (`undo`, `today`) are handled before either parser runs.

@@ -88,6 +88,10 @@ On Vercel, runtime logs show which model was picked (`[buffer] google model ...`
 - Standing hours live in `settings.workStart/workEnd/workLabel` and appear as a block on weekdays via `buildDayPlan`; a marked work block that overlaps replaces them for that day; `daysOff` clears a day.
 - Small edits: match the surrounding style (2-space indent, double quotes, long lines are fine).
 
+## WhatsApp
+
+`src/app/api/whatsapp/route.ts` is Meta's webhook (GET verifies, POST handles messages); `src/lib/wa.ts` turns each `ChatMessage` into WhatsApp messages (image for a picture, interactive buttons for text with up to three replies, list for the menu; browser-only buttons such as Add to Google Cal become a text with the link). `src/app/api/picture/[payload]/route.tsx` renders the day and week cards as PNG with `next/og`; the card is base64url in the URL. `src/app/api/whatsapp/tick/route.ts` sends due reminders and nudges, meant to be called every 15 minutes by the GitHub Actions workflow in `docs/tick-workflow.yml` (copy it to `.github/workflows/`; that push needs the `workflow` token scope). WhatsApp users are keyed by phone (`waPhone`, `createWhatsAppUser`) and need the Redis store, since there is no browser to hold their copy. Env: `WA_TOKEN`, `WA_PHONE_ID`, `WA_VERIFY_TOKEN`.
+
 ## Known limits and likely next steps
 
 - **Storage**: on Vercel without KV the store is in memory, so users reset on cold starts; the chat page keeps a copy in localStorage and re-sends it, so a person's own chat survives, but nothing is shared across devices. Adding Upstash Redis (free) and setting `KV_REST_API_URL` and `KV_REST_API_TOKEN` fixes this with no code change.

@@ -1,0 +1,17 @@
+name: Buffer tick
+
+# Sends due WhatsApp reminders and the evening nudge. GitHub runs this on a
+# best-effort schedule (often a few minutes late), which is fine for nudges.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ved's deployment
+        run: curl -fsS --max-time 55 "https://buffer-psi.vercel.app/api/whatsapp/tick" || true
+      - name: Sanjana's deployment
+        run: curl -fsS --max-time 55 "https://buffer-ashen.vercel.app/api/whatsapp/tick" || true

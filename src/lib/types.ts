@@ -213,6 +213,9 @@ export interface UserRecord {
   nudgeIndex?: number;
   /** Dates (YYYY-MM-DD) with no standing work/class block: "no class tomorrow", "off friday". */
   daysOff?: string[];
+  /** WhatsApp: the phone that talks to the bot (digits, country code first), and the last message ids answered. */
+  waPhone?: string;
+  waSeen?: string[];
 }
 
 export interface NlpDebug {

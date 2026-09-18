@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserById, mergeIncomingUser, upsertUser } from "@/lib/store";
-import { dailyDigest, dueReminders, processTurn, unwindNudge } from "@/lib/bot";
+import { processTurn } from "@/lib/bot";
+import { proactive } from "@/lib/proactive";
 import type { UserRecord } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -26,34 +27,6 @@ export async function POST(req: NextRequest) {
   const result = await processTurn(user, text);
   const saved = await upsertUser(result.user);
   return NextResponse.json({ user: saved, replies: result.replies });
-}
-
-/** Reminders, the morning digest and the evening nudge that are due right now; saved onto the user. */
-async function proactive(user: UserRecord) {
-  const extra = dueReminders(user);
-  const digest = dailyDigest(user);
-  if (digest.message) extra.unshift(digest.message);
-  const nudge = unwindNudge(user);
-  if (nudge.message) extra.push(nudge.message);
-  if (extra.length || nudge.patch) {
-    const extraIds = new Set(user.remindedEventIds);
-    for (const e of user.events) {
-      if (extra.some((m) => m.text.includes(`*${e.title}*`))) {
-        extraIds.add(e.id);
-        extraIds.add(`pre:${e.id}`);
-      }
-    }
-    const saved = await upsertUser({
-      ...user,
-      ...(digest.patch ?? {}),
-      ...(nudge.patch ?? {}),
-      messages: [...user.messages, ...extra],
-      remindedEventIds: [...extraIds],
-      updatedAt: new Date().toISOString(),
-    });
-    return { user: saved, reminders: extra };
-  }
-  return { user, reminders: [] as typeof extra };
 }
 
 /** The client polls with its whole copy of the user, so a fresh serverless instance still knows them. */
