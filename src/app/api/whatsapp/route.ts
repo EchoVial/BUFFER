@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { beginChat, processTurn } from "@/lib/bot";
-import { createWhatsAppUser, getUserByPhone, upsertUser } from "@/lib/store";
+import { createWhatsAppUser, deleteUser, getUserByPhone, upsertUser } from "@/lib/store";
 import { originFromRequest } from "@/lib/calendar";
 import { deliver, incomingText, markRead, sendText, timezoneForPhone, waConfigured, type WaWebhook } from "@/lib/wa";
 
@@ -67,6 +67,11 @@ async function handle(message: Parameters<typeof incomingText>[0], profileName: 
     return;
   }
   if (!waConfigured()) return;
+  if (/^(delete|forget|erase) (my )?(data|everything|me)$/i.test(text.trim())) {
+    await deleteUser(user.id);
+    await sendText(phone, "done. everything i had about you is gone. if you message me again we start from scratch.");
+    return;
+  }
   const turn = await processTurn(user, text);
   const saved = await upsertUser({ ...turn.user, waSeen: [...(turn.user.waSeen ?? []), message.id].slice(-30) });
   for (const m of turn.replies) await deliver(saved, m, origin);

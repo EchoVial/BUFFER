@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createUser, getAppSettings, getUserById, getUserByName, persistBackend, upsertUser } from "@/lib/store";
+import { createUser, deleteUser, getAppSettings, getUserById, getUserByName, persistBackend, upsertUser } from "@/lib/store";
 import { beginChat } from "@/lib/bot";
 import { extractName } from "@/lib/names";
 
@@ -70,7 +70,10 @@ export async function POST(req: NextRequest) {
   return res;
 }
 
-export async function DELETE() {
+export async function DELETE(req: NextRequest) {
+  // Leaving the chat forgets the record on the server as well as the cookie.
+  const id = req.cookies.get(COOKIE)?.value;
+  if (id) await deleteUser(id).catch(() => undefined);
   const res = NextResponse.json({ ok: true });
   res.cookies.set(COOKIE, "", { path: "/", maxAge: 0 });
   return res;
