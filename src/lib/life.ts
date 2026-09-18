@@ -240,7 +240,7 @@ export function weekImage(view: WeekView, user: UserRecord): ImageCard {
     type: "image",
     variant: "week",
     title: "Your next 7 days",
-    subtitle: view.totalWork ? "green is free, grey is work" : "nothing marked as work yet",
+    subtitle: view.totalWork ? "white is free, grey is work" : "nothing marked as work yet",
     days: view.days.map((d) => {
       const biggest = [...d.windows].sort((a, b) => b.endMin - b.startMin - (a.endMin - a.startMin))[0];
       return {

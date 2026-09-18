@@ -8,7 +8,7 @@ Four questions, with tap-to-answer buttons: when do you usually work (`9 to 5`, 
 
 - `work 7 to 10pm today`, `shift 9 to 5 tomorrow`: marks work. No confirmation step unless it clashes with something.
 - `every weekday from 9am to 5pm i have class`, `i usually work 9 to 6`, or `all weekdays` when asked which day: standing hours. They show as a block (Class, Shift or Work) on every weekday until a marked block overlaps them; `no class tomorrow` or `off friday` clears one day, `class is back on tuesday` restores it.
-- `my week`, `today`, `tomorrow`: a picture. The week is free (green) stacked on work (grey) per day; a day is a strip plus the blocks as a list.
+- `my week`, `today`, `tomorrow`: a picture. Monochrome: the week is free (white) stacked on work (grey) per day; a day is a strip plus the blocks as a list. Purple is the one accent and means "you can drag this".
 - `dinner with sam friday 8pm`, `gym tomorrow 7am`: plans. `remind me to call nani`: a to-do (no time).
 - `reserve friday evening` (or `keep friday evening free`): a *Reserved for you* block so nothing else gets planned there.
 - `plan people time`: a slot this week for each person you named (a call for a person, an evening for a group), tap one and it is on the calendar. This is the point; marking work is what makes the slots honest, and every work reply ends with this offer.

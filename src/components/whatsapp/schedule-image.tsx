@@ -11,21 +11,24 @@ import type { ImageCard } from "@/lib/types";
  */
 const W = 400;
 
-const INK = "#e9edef";
-const MUTED = "#98a7b0";
-const BG_A = "#10302b";
-const BG_B = "#0b141a";
-const FREE = "#25d366";
-const WORK = "#64778a";
-const SOCIAL = "#f5b942";
-const HEALTH = "#5ad1c4";
-const PERSONAL = "#c39bf0";
-const TODO = "#6fa8ff";
-const OTHER = "#9aa8b3";
+/*
+ * Monochrome on purpose: black, white and greys carry the structure; purple is the one accent
+ * and it means "you can move this" (saved blocks) or "this just changed".
+ */
+const INK = "#f2f2f2";
+const MUTED = "#9a9a9a";
+const BG_A = "#161616";
+const BG_B = "#0b0b0b";
+const FREE = "#e8e8e8";
+const WORK = "#4a4a4a";
+const BLOCK = "#5c5c5c";
+const BLOCK_DIM = "#333333";
+const ACCENT = "#8B84E8";
+const ACCENT_INK = "#1b1748";
 const FONT = "Google Sans, Segoe UI, system-ui, sans-serif";
 
-const kindColor = (k: string) =>
-  k === "work" ? WORK : k === "social" ? SOCIAL : k === "health" ? HEALTH : k === "personal" ? PERSONAL : k === "todo" ? TODO : k === "free" ? FREE : OTHER;
+/** Grey for what is fixed; purple for what you can drag. */
+const blockColor = (b: { kind: string; movable?: boolean; id?: string }) => (b.movable && b.id ? ACCENT : b.kind === "todo" ? BLOCK_DIM : b.kind === "work" ? WORK : BLOCK);
 const kindWord = (k: string) => (k === "work" ? "work" : k === "social" ? "people" : k === "health" ? "health" : k === "personal" ? "you" : k === "todo" ? "to-do" : "");
 
 const clock = (min: number) => {
@@ -56,7 +59,7 @@ function Frame({ h, title, subtitle, children }: { h: number; title: string; sub
       <text x="20" y="56" fill={MUTED} fontSize="12.5" fontFamily={FONT}>
         {subtitle}
       </text>
-      <text x={W - 20} y="34" textAnchor="end" fill={FREE} fontSize="11.5" fontWeight="700" fontFamily={FONT} letterSpacing="0.4">
+      <text x={W - 20} y="34" textAnchor="end" fill={MUTED} fontSize="11.5" fontWeight="700" fontFamily={FONT} letterSpacing="0.4">
         Buffer
       </text>
       {children}
@@ -100,10 +103,10 @@ function WeekSvg({ card }: { card: Extract<ImageCard, { variant: "week" }> }) {
             {workH > 0 && <rect x={x} y={yWork} width={bw} height={Math.max(2, workH)} fill={WORK} opacity="0.9" rx="3" />}
             {freeH > 0 && <rect x={x} y={yFree} width={bw} height={Math.max(2, freeH)} fill={FREE} rx="3" />}
             {!d.freeMinutes && !d.workMinutes && <rect x={x} y={bottom - 3} width={bw} height="3" fill="#ffffff" fillOpacity="0.15" rx="1.5" />}
-            <text x={x + bw / 2} y={bottom + 18} textAnchor="middle" fill={d.today ? FREE : INK} fontSize="12.5" fontWeight={d.today ? 700 : 500} fontFamily={FONT}>
+            <text x={x + bw / 2} y={bottom + 18} textAnchor="middle" fill={INK} fontSize="12.5" fontWeight={d.today ? 700 : 500} fontFamily={FONT}>
               {d.label}
             </text>
-            {d.today && <circle cx={x + bw / 2} cy={bottom + 28} r="2" fill={FREE} />}
+            {d.today && <circle cx={x + bw / 2} cy={bottom + 28} r="2" fill={INK} />}
           </g>
         );
       })}
@@ -159,21 +162,22 @@ function DaySvg({ card, h, drag, onDragStart }: { card: Extract<ImageCard, { var
               width={bw - 2}
               height={laneH - 10}
               rx="5"
-              fill={kindColor(b.kind)}
-              opacity={dragging ? 1 : b.kind === "work" ? 0.9 : 0.95}
-              stroke={hi ? "#ffffff" : "none"}
-              strokeWidth={hi ? 2 : 0}
+              fill={blockColor(b)}
+              opacity={dragging ? 1 : 0.95}
+              stroke={hi ? INK : b.kind === "todo" ? "#7a7a7a" : "none"}
+              strokeWidth={hi ? 2 : b.kind === "todo" ? 1 : 0}
+              strokeDasharray={!hi && b.kind === "todo" ? "3 3" : undefined}
               style={grab ? { cursor: dragging ? "grabbing" : "grab", touchAction: "none" } : undefined}
               onPointerDown={grab ? (e) => onDragStart!(b, e) : undefined}
             />
             {grab && bw > 26 && (
               <g pointerEvents="none" opacity="0.7">
-                <line x1={bx + bw - 9} x2={bx + bw - 9} y1={laneY + 14} y2={laneY + laneH - 14} stroke="#0b141a" strokeWidth="1.5" />
-                <line x1={bx + bw - 5} x2={bx + bw - 5} y1={laneY + 14} y2={laneY + laneH - 14} stroke="#0b141a" strokeWidth="1.5" />
+                <line x1={bx + bw - 9} x2={bx + bw - 9} y1={laneY + 14} y2={laneY + laneH - 14} stroke={ACCENT_INK} strokeWidth="1.5" />
+                <line x1={bx + bw - 5} x2={bx + bw - 5} y1={laneY + 14} y2={laneY + laneH - 14} stroke={ACCENT_INK} strokeWidth="1.5" />
               </g>
             )}
             {dragging && (
-              <text x={Math.min(Math.max(bx + bw / 2, left + 40), right - 40)} y={laneY - 12} textAnchor="middle" fill={INK} fontSize="12.5" fontWeight="700" fontFamily={FONT}>
+              <text x={Math.min(Math.max(bx + bw / 2, left + 40), right - 40)} y={laneY - 12} textAnchor="middle" fill={ACCENT} fontSize="12.5" fontWeight="700" fontFamily={FONT}>
                 {clockRange(b.startMin, b.endMin)}
               </text>
             )}
@@ -182,8 +186,8 @@ function DaySvg({ card, h, drag, onDragStart }: { card: Extract<ImageCard, { var
       })}
       {card.nowMin !== undefined && card.nowMin >= from && card.nowMin <= to && (
         <g>
-          <line x1={x(card.nowMin)} x2={x(card.nowMin)} y1={laneY - 6} y2={laneY + laneH + 2} stroke="#ff5a5f" strokeWidth="2" />
-          <circle cx={x(card.nowMin)} cy={laneY - 7} r="3.5" fill="#ff5a5f" />
+          <line x1={x(card.nowMin)} x2={x(card.nowMin)} y1={laneY - 6} y2={laneY + laneH + 2} stroke={INK} strokeWidth="2" />
+          <circle cx={x(card.nowMin)} cy={laneY - 7} r="3.5" fill={INK} />
         </g>
       )}
       {rows.length === 0 && (
@@ -199,7 +203,7 @@ function DaySvg({ card, h, drag, onDragStart }: { card: Extract<ImageCard, { var
         const title = b.title.length > 26 ? `${b.title.slice(0, 25)}…` : b.title;
         return (
           <g key={`${b.title}-${i}-row`}>
-            <circle cx={left + 5} cy={y - 4} r="4.5" fill={kindColor(b.kind)} />
+            <circle cx={left + 5} cy={y - 4} r="4.5" fill={blockColor(b)} stroke={b.kind === "todo" ? "#7a7a7a" : "none"} strokeWidth={b.kind === "todo" ? 1 : 0} />
             <text x={left + 18} y={y} fill={MUTED} fontSize="12" fontFamily={FONT}>
               {clockRange(b.startMin, b.endMin)}
             </text>
@@ -207,7 +211,7 @@ function DaySvg({ card, h, drag, onDragStart }: { card: Extract<ImageCard, { var
               {title}
             </text>
             {hi ? (
-              <text x={right} y={y} textAnchor="end" fill={FREE} fontSize="11" fontWeight="700" fontFamily={FONT}>
+              <text x={right} y={y} textAnchor="end" fill={ACCENT} fontSize="11" fontWeight="700" fontFamily={FONT}>
                 {dragging ? "moving" : "new"}
               </text>
             ) : (
@@ -226,7 +230,15 @@ function DaySvg({ card, h, drag, onDragStart }: { card: Extract<ImageCard, { var
         </text>
       )}
       <line x1={left} x2={right} y1={h - 36} y2={h - 36} stroke="#ffffff" strokeOpacity="0.1" />
-      <text x={left} y={h - 16} fill={INK} fontSize="12.5" fontWeight="600" fontFamily={FONT}>
+      {blocks.some((b) => b.movable && b.id) && onDragStart ? (
+        <g>
+          <rect x={left} y={h - 25} width="9" height="9" rx="2" fill={ACCENT} />
+          <text x={left + 14} y={h - 17} fill={MUTED} fontSize="11.5" fontFamily={FONT}>
+            purple blocks: drag to move
+          </text>
+        </g>
+      ) : null}
+      <text x={right} y={h - 16} textAnchor="end" fill={INK} fontSize="12.5" fontWeight="600" fontFamily={FONT}>
         {card.footer}
       </text>
     </Frame>

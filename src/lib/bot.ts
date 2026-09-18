@@ -173,7 +173,7 @@ const TIPS: Record<string, string> = {
   keep: "(reserving = i put a block called *Reserved for you* on your calendar, so nothing else gets planned there. *Undo* removes it.)",
   save: "(tap *Undo* to remove it, or *Push 30 min later* to move it.)",
   todo: "(a to-do has no fixed time. i slot it into a free gap and show it on your day.)",
-  picture: "(tap the picture to see it big. drag a block to move it.)",
+  picture: "(tap the picture to see it big. the purple blocks are yours to drag to a new time.)",
   calendar: "(google won't let me write into your calendar without you signing in there, so the button opens google calendar with it filled in and you tap Save. *Connect live feed* subscribes google to everything i save, but google only refreshes feeds every few hours.)",
 };
 
@@ -456,7 +456,7 @@ function finishSetup(next: UserRecord): ChatMessage[] {
     ),
     botText(
       view.totalWork
-        ? `here's your week. green is free, grey is work. the green is what we're here for.${tip(next, "picture")}`
+        ? `here's your week. white is free, grey is work. the white is what we're here for.${tip(next, "picture")}`
         : `here's your week so far. nothing is marked as work yet, so it all looks open. add your work and this gets real.${tip(next, "picture")}`,
       {
         card: weekImage(view, next),
@@ -806,7 +806,7 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     const lead = !view.totalWork
       ? "nothing is marked as work yet, so the week looks wide open. tell me your work and this gets real: *work 9 to 5 tomorrow*."
       : view.totalFree
-        ? "here's your week. green is free, grey is work."
+        ? "here's your week. white is free, grey is work."
         : "the next 7 days are full edge to edge. that's the first thing to fix.";
     const best = view.best.length && view.totalWork ? `\nyour biggest open stretch is ${windowLabel(view.best[0])}.` : "";
     const nudge = view.best.length && view.totalWork ? " want me to reserve it for you?" : "";

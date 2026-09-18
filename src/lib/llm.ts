@@ -399,7 +399,7 @@ const VOICE = `Buffer's voice: warm, brief, lowercase like a text from a friend,
 
 const FEATURES = `What Buffer can do (answer questions about itself from this, never invent features):
 - You tell it when you work ("work 7 to 10pm today", "shift 9 to 5 tomorrow", "i usually work 9 to 6"); it marks it on your calendar and knows when you are actually free.
-- "my week" / "today" / "tomorrow" send a picture: the week as bars (green free, grey work), a day as a strip plus the blocks.
+- "my week" / "today" / "tomorrow" send a picture: the week as bars (white free, grey work), a day as a strip plus the blocks; saved blocks are purple and can be dragged to a new time.
 - Plans with a time ("dinner with sam friday 8pm") and to-dos without one ("remind me to renew my passport"). Everything saves immediately; "undo", "push 30 min later", "make it 2h", "move gym to 8pm", "done with the deck" change things.
 - "reserve friday evening" puts a block called "Reserved for you" on the calendar so nothing else gets planned there.
 - "plan people time" finds a slot this week for each person you named (a call for a person, an evening for a group) and puts the one you tap on your calendar. This is the point of Buffer: work goes in so the people time can be planned around it.

@@ -153,9 +153,14 @@ export function WhatsAppApp() {
     if (!user) return;
     const t = setInterval(async () => {
       // Send our copy: the server forgets users between cold starts, the browser does not.
-      const res = await fetch("/api/chat", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user, poll: true }) });
-      if (!res.ok) return;
-      const data = (await res.json()) as { user: UserRecord; reminders?: ChatMessage[] };
+      let data: { user: UserRecord; reminders?: ChatMessage[] };
+      try {
+        const res = await fetch("/api/chat", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user, poll: true }) });
+        if (!res.ok) return;
+        data = (await res.json()) as { user: UserRecord; reminders?: ChatMessage[] };
+      } catch {
+        return; /* offline or the tab is suspended; try again next tick */
+      }
       if (data.reminders?.length) {
         setUser(data.user);
         persist(data.user);
