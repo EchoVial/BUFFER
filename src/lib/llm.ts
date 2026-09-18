@@ -235,8 +235,8 @@ function contentText(message: { content?: unknown; reasoning_content?: unknown }
   return typeof message?.reasoning_content === "string" ? message.reasoning_content : "";
 }
 
-/** Names change and retire; prefer an open Gemma, then a Flash-Lite, then any Flash that supports generateContent. */
-const GOOGLE_PREFERENCE = [/^gemma-4/, /^gemma-3n/, /^gemma-3/, /^gemma/, /^gemini-[\d.]+-flash-lite(?!.*preview)/, /^gemini-[\d.]+-flash(?!.*(preview|live|image|tts|audio|native))/, /^gemini-[\d.]+-flash-lite/, /^gemini-[\d.]+-flash/, /^gemini/];
+/** Names change and retire. Flash-Lite first (fast, free tier, no thinking), then Flash, then an open Gemma (Gemma 4 thinks out loud and takes 20s+). */
+const GOOGLE_PREFERENCE = [/^gemini-[\d.]+-flash-lite$/, /^gemini-[\d.]+-flash$/, /^gemini-[\d.]+-flash-lite(?!.*(live|image|tts|audio|native))/, /^gemini-[\d.]+-flash(?!.*(live|image|tts|audio|native))/, /^gemma-4/, /^gemma-3n/, /^gemma/, /^gemini/];
 let googleModel: string | undefined;
 
 async function pickGoogleModel(apiKey: string): Promise<string> {
@@ -293,7 +293,7 @@ async function callStructured<S extends z.ZodObject>(schema: S, defaults: z.infe
     const send = async (model: string, noThinking: boolean) => {
       const gemma = /gemma/i.test(model);
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 40_000);
+      const timer = setTimeout(() => controller.abort(), 25_000);
       return fetch(`${p.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(p.apiKey ? { Authorization: `Bearer ${p.apiKey}` } : {}) },
@@ -303,7 +303,8 @@ async function callStructured<S extends z.ZodObject>(schema: S, defaults: z.infe
           // Thinking models spend tokens before the answer; leave room so the JSON is not cut off.
           max_tokens: Math.max(maxTokens, 4000),
           ...(p.jsonMode && !gemma ? { response_format: { type: "json_object" } } : {}),
-          ...(google && noThinking ? { extra_body: { google: { thinking_config: { thinking_budget: 0 } } } } : {}),
+          // Gemini 2.x takes a thinking budget; Gemini 3 takes a level. Either way: as little thinking as allowed.
+          ...(google && noThinking ? { extra_body: { google: { thinking_config: /gemini-3/.test(model) ? { thinking_level: "low" } : { thinking_budget: 0 } } } } : {}),
           // Gemma has no system role; everything goes in the one user turn.
           messages: gemma
             ? [{ role: "user", content: `${instructions}\n\n---\n\n${user}` }]
