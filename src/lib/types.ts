@@ -94,7 +94,8 @@ export type ImageCard =
       variant: "week";
       title: string;
       subtitle: string;
-      days: Array<{ date: string; label: string; freeMinutes: number; workMinutes: number; best?: string; today?: boolean }>;
+      /** For today, freeMinutes and workMinutes are what is still ahead; goneMinutes is the part of the day already behind you. */
+      days: Array<{ date: string; label: string; freeMinutes: number; workMinutes: number; goneMinutes?: number; best?: string; today?: boolean }>;
     }
   | {
       type: "image";

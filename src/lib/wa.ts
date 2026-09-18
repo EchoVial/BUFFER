@@ -83,8 +83,73 @@ export function sendList(to: string, body: string, button: string, sections: Arr
   });
 }
 
-export function sendImage(to: string, link: string, caption?: string) {
-  return post({ to, type: "image", image: { link, ...(caption ? { caption: clip(caption, 1024) } : {}) } });
+/**
+ * Pictures go up to Meta first and are sent by id, so the render time is spent
+ * before anything is sent and the picture lands before the words that follow it.
+ * (Sending by link makes Meta fetch the PNG after the text has already gone out.)
+ */
+export async function sendImage(to: string, link: string, caption?: string) {
+  const caption_ = caption ? { caption: clip(caption, 1024) } : {};
+  const id = await uploadMedia(link);
+  if (id) return post({ to, type: "image", image: { id, ...caption_ } });
+  return post({ to, type: "image", image: { link, ...caption_ } });
+}
+
+async function uploadMedia(link: string): Promise<string | undefined> {
+  const token = process.env.WA_TOKEN;
+  const phoneId = process.env.WA_PHONE_ID;
+  if (!token || !phoneId) return undefined;
+  try {
+    const png = await fetch(link);
+    if (!png.ok) return undefined;
+    const form = new FormData();
+    form.append("messaging_product", "whatsapp");
+    form.append("type", "image/png");
+    form.append("file", new Blob([await png.arrayBuffer()], { type: "image/png" }), "buffer.png");
+    const res = await fetch(`${GRAPH}/${phoneId}/media`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
+    if (!res.ok) {
+      console.warn("[buffer] whatsapp media upload failed", res.status, (await res.text()).slice(0, 300));
+      return undefined;
+    }
+    return ((await res.json()) as { id?: string }).id;
+  } catch (err) {
+    console.warn("[buffer] whatsapp media upload failed", err instanceof Error ? err.message : err);
+    return undefined;
+  }
+}
+
+let ownNumber: Promise<string | undefined> | undefined;
+
+/** The number people are talking to, as Meta shows it ("+1 555-159-9246"). */
+export function botNumber(): Promise<string | undefined> {
+  const token = process.env.WA_TOKEN;
+  const phoneId = process.env.WA_PHONE_ID;
+  if (!token || !phoneId) return Promise.resolve(undefined);
+  ownNumber ??= fetch(`${GRAPH}/${phoneId}?fields=display_phone_number`, { headers: { Authorization: `Bearer ${token}` } })
+    .then(async (r) => (r.ok ? ((await r.json()) as { display_phone_number?: string }).display_phone_number : undefined))
+    .catch(() => undefined);
+  return ownNumber;
+}
+
+/**
+ * A contact card for Buffer itself. Saving it is the one way a test number
+ * can show up as "Buffer" instead of digits in the chat header.
+ */
+export async function sendContact(to: string, origin: string) {
+  const number = await botNumber();
+  if (!number) return false;
+  return post({
+    to,
+    type: "contacts",
+    contacts: [
+      {
+        name: { formatted_name: "Buffer", first_name: "Buffer" },
+        org: { company: "Buffer" },
+        phones: [{ phone: number, type: "WORK", wa_id: number.replace(/\D/g, "") }],
+        urls: [{ url: origin, type: "WORK" }],
+      },
+    ],
+  });
 }
 
 /** The picture as a PNG the WhatsApp servers can fetch: the card itself travels in the URL. */

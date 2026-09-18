@@ -2,7 +2,7 @@ import { NextRequest, NextResponse, after } from "next/server";
 import { beginChat, processTurn } from "@/lib/bot";
 import { createWhatsAppUser, deleteUser, getUserByPhone, refreshStore, upsertUser, withLock } from "@/lib/store";
 import { originFromRequest } from "@/lib/calendar";
-import { deliver, incomingText, markRead, sendText, timezoneForPhone, waConfigured, type WaWebhook } from "@/lib/wa";
+import { deliver, incomingText, markRead, sendContact, sendText, timezoneForPhone, waConfigured, type WaWebhook } from "@/lib/wa";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -62,7 +62,7 @@ type WaMessage = Parameters<typeof incomingText>[0];
 /** Send the bubbles of one turn in order, with a beat between them so it reads like a person, not a burst. */
 async function sendAll(user: Parameters<typeof deliver>[0], msgs: Parameters<typeof deliver>[1][], origin: string) {
   for (let i = 0; i < msgs.length; i++) {
-    if (i) await new Promise((r) => setTimeout(r, 450));
+    if (i) await new Promise((r) => setTimeout(r, msgs[i - 1].card?.type === "image" ? 1200 : 450));
     await deliver(user, msgs[i], origin);
   }
 }
@@ -80,6 +80,10 @@ async function handle(message: WaMessage, profileName: string | undefined, origi
     user.waSeen = [message.id];
     user = await upsertUser(user);
     await sendAll(user, user.messages.filter((m) => m.role === "bot"), origin);
+    // The test number shows as digits until it is saved; hand them the card to save.
+    await new Promise((r) => setTimeout(r, 450));
+    await sendText(phone, "save this so the chat says *Buffer* instead of the number.");
+    await sendContact(phone, origin);
     const text = incomingText(message);
     if (!text || /^(hi|hello|hey|hii|start|yo|namaste)\b/i.test(text)) return;
     // They opened with something real ("9 to 5"); treat it as the first answer.

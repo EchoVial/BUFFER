@@ -131,7 +131,9 @@ const WEEK_H = 472;
 function WeekCard({ card }: { card: Extract<ImageCard, { variant: "week" }> }) {
   const pad = 40;
   const chartH = 220;
-  const maxMin = Math.max(6 * 60, ...card.days.map((d) => d.freeMinutes + d.workMinutes));
+  const maxMin = Math.max(6 * 60, ...card.days.map((d) => d.freeMinutes + d.workMinutes + (d.goneMinutes ?? 0)));
+  // The part of today already behind you: dim with slanted marks, so today stands as tall as the other days.
+  const gone = { backgroundColor: BLOCK_DIM, backgroundImage: `repeating-linear-gradient(135deg, ${MUTED}55 0px, ${MUTED}55 3px, transparent 3px, transparent 10px)` };
   return (
     <div style={{ width: W, height: WEEK_H, background: BG, display: "flex", flexDirection: "column", padding: pad, color: INK, fontFamily: "Noto Sans" }}>
       <Header title={card.title} subtitle={card.subtitle} />
@@ -145,12 +147,14 @@ function WeekCard({ card }: { card: Extract<ImageCard, { variant: "week" }> }) {
         {card.days.map((d) => {
           const freeH = Math.round((d.freeMinutes / maxMin) * chartH);
           const workH = Math.round((d.workMinutes / maxMin) * chartH);
+          const goneH = Math.round(((d.goneMinutes ?? 0) / maxMin) * chartH);
           return (
             <div key={d.date} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: chartH }}>
               <div style={{ width: "58%", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+                {goneH > 0 ? <div style={{ height: Math.max(3, goneH), ...gone, borderRadius: 6, display: "flex", marginBottom: 2 }} /> : null}
                 {freeH > 0 ? <div style={{ height: Math.max(3, freeH), background: FREE, borderRadius: 6, display: "flex" }} /> : null}
                 {workH > 0 ? <div style={{ height: Math.max(3, workH), background: WORK, borderRadius: 6, display: "flex", marginTop: 2 }} /> : null}
-                {!d.freeMinutes && !d.workMinutes ? <div style={{ height: 4, background: "rgba(255,255,255,0.15)", borderRadius: 2, display: "flex" }} /> : null}
+                {!d.freeMinutes && !d.workMinutes && !d.goneMinutes ? <div style={{ height: 4, background: "rgba(255,255,255,0.15)", borderRadius: 2, display: "flex" }} /> : null}
               </div>
             </div>
           );

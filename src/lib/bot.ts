@@ -125,21 +125,19 @@ const START_LIST: InteractiveList = {
 };
 
 function optionsMessage(): ChatMessage {
-  return botText("here's everything i do. tap one, or just text me.", { list: START_LIST });
+  return botText("everything i do. tap one, or just text me.", { list: START_LIST });
 }
 
 function helpText(): string {
   return [
-    "here's the whole thing:",
+    "the short version:",
+    "• *work 7 to 10pm today* or *class 9 to 5 every weekday* marks work",
+    "• *my week* or *today* sends a picture",
+    "• *dinner with sam fri 8pm* adds a plan, *remind me to call nani* a to-do",
+    "• *plan people time* finds slots for your people. free evenings get one nudge to call someone",
+    "• *reserve friday evening* keeps it clear",
     "",
-    "1. tell me when you work: *work 7 to 10pm today*, *shift 9 to 5 tomorrow*. usual hours: *i usually work 9 to 6*.",
-    "2. ask *my week* or *today*. i send a picture.",
-    "3. add anything else the same way: *dinner with sam friday 8pm*, *gym tomorrow 7am*. no time means a to-do: *remind me to call nani*.",
-    "4. the point of all this: *plan people time* finds slots this week for the people you named, and when you're free after work i nudge you to call someone. *nudge me to call mum* adds a person.",
-    "5. *reserve friday evening* blocks it so nothing else lands there.",
-    "",
-    "change or finish things in plain words: *move gym to 8pm*, *done with the deck*, *undo*.",
-    "*add to gcal* puts the last thing i saved into google calendar (you tap Save there).",
+    "plain words change things: *move gym to 8pm*, *undo*, *add to gcal*.",
   ].join("\n");
 }
 
@@ -170,16 +168,20 @@ const span = (start: string, minutes: number) => `${clockShort(start)} to ${cloc
 
 /** One-line explanations, each shown once per person. */
 const TIPS: Record<string, string> = {
-  keep: "(reserving = i put a block called *Reserved for you* on your calendar, so nothing else gets planned there. *Undo* removes it.)",
-  save: "(tap *Undo* to remove it, or *Push 30 min later* to move it.)",
-  todo: "(a to-do has no fixed time. i slot it into a free gap and show it on your day.)",
-  picture: "(tap the picture to see it big. the purple blocks are yours to drag to a new time.)",
-  calendar: "(google won't let me write into your calendar without you signing in there, so the button opens google calendar with it filled in and you tap Save. *Connect live feed* subscribes google to everything i save, but google only refreshes feeds every few hours.)",
+  keep: "(*Reserved for you* sits on your calendar. *Undo* removes it.)",
+  save: "(*Undo* removes it. *Push 30 min later* moves it.)",
+  todo: "(no fixed time: i slot it into a free gap.)",
+  picture: "(purple blocks: drag them to a new time.)",
+  calendar: "(the button opens google calendar with it filled in. you tap Save.)",
 };
+
+/** Talking to WhatsApp rather than the web chat: no browser, no dragging, no popups. */
+const onWhatsApp = (u: UserRecord) => Boolean(u.waPhone);
 
 function tip(next: UserRecord, id: keyof typeof TIPS): string {
   const seen = next.tips ?? [];
   if (seen.includes(id)) return "";
+  if (id === "picture" && onWhatsApp(next)) return ""; // a PNG in WhatsApp cannot be dragged
   next.tips = [...seen, id];
   return `\n${TIPS[id]}`;
 }
@@ -405,22 +407,23 @@ function shiftLater(next: UserRecord, minutes: number): ChatMessage | undefined 
 function introMessages(name: string): ChatMessage[] {
   const first = name.split(" ")[0];
   return [
-    botText(`hey ${first}, i'm *Buffer*.\n\ntell me when you work. i'll show you when you're actually free, and nudge you to spend some of that time with the people you love.\n\nthe buttons are shortcuts. you can always just type it the way you'd say it and i'll understand.`),
-    workQuestion(),
+    botText(`hey ${first}. i'm *Buffer*. tell me when you work and i'll show you when you're free, then nudge you to spend some of it with your people.\n\nwhen do you usually work? tap one, or type it like *class 10 to 4 mon to fri*.`, {
+      buttons: WORK_BUTTONS,
+    }),
   ];
 }
 
+const WORK_BUTTONS = [btn("w95", "9 to 5", "i usually work 9 to 5"), btn("w106", "10 to 6", "i usually work 10 to 6"), btn("wvar", "It varies", "it varies")];
+
 function workQuestion(): ChatMessage {
-  return botText("two quick questions to set up.\n\nfirst: when do you usually work? tap one, or say it your way: *i have work from 9 to 5 every weekday*, *class 10 to 4 mon to fri*, *it changes every day*.", {
-    buttons: [btn("w95", "9 to 5", "i usually work 9 to 5"), btn("w106", "10 to 6", "i usually work 10 to 6"), btn("wvar", "It varies", "it varies")],
-  });
+  return botText("when do you usually work? tap one, or type it like *class 10 to 4 mon to fri*.", { buttons: WORK_BUTTONS });
 }
 
 function unwindQuestion(next: UserRecord): ChatMessage {
   const standing = standingWork(next.settings);
   const base = standing ? Math.max(standing.end, 17 * 60) : 19 * 60;
   const opts = [0, 60, 120].map((add) => minutesToHM(Math.min(base + add, 22 * 60)));
-  return botText("and when do you usually switch off from work for the day? pick one below, or type your own time, like *around 8:30* or *usually by 7*.", {
+  return botText("when do you switch off for the day? tap one or type a time.", {
     buttons: opts.map((hm, i) => btn(`u${i}`, clockShort(hm), `i switch off at ${clockShort(hm)}`)),
   });
 }
@@ -431,14 +434,18 @@ function eveningHM(hm: string): string {
   return m < 10 * 60 ? minutesToHM(m + 12 * 60) : hm;
 }
 
-function notifyQuestion(): ChatMessage {
-  return botText("last thing: can i send you a small nudge in the evening when you're free? tap *Allow nudges* and your browser will ask once.", {
-    buttons: [{ id: "notify", title: "Allow nudges", action: "notify", payload: "notifications on" }, btn("nonotify", "Not now", "notifications off")],
+function notifyQuestion(next: UserRecord): ChatMessage {
+  const wa = onWhatsApp(next);
+  return botText(wa ? "last one. a nudge here in the evening to call them, when you're free? once a day at most." : "last one. an evening nudge to call them, when you're free? once a day at most. your browser asks once.", {
+    buttons: [
+      wa ? btn("notify", "Yes, nudge me", "notifications on") : { id: "notify", title: "Yes, nudge me", action: "notify", payload: "notifications on" },
+      btn("nonotify", "No nudges", "notifications off"),
+    ],
   });
 }
 
 function peopleQuestion(): ChatMessage {
-  return botText("now the important one: who should i help you make time for? say it however you like: *mum, dad*, *my sister and rohan*, or *remind me to spend time with my roommates too*.", {
+  return botText("who should i help you make time for? like *mum, dad* or *my sister and rohan*.", {
     buttons: [btn("skip", "Skip this", "skip")],
   });
 }
@@ -450,21 +457,15 @@ function finishSetup(next: UserRecord): ChatMessage[] {
   const after = clockShort(next.settings.protectEveningsAfter || "19:00");
   const verb = people.length && people.slice(0, 2).some(isGroup) ? "about" : "to call";
   const view = weekView(next);
-  const out: ChatMessage[] = [
-    botText(
-      `that's the setup. when you're free after ${after}, i'll send one small nudge ${verb} ${who}. never more than once a day.\n\nfrom here, just text me like a friend:\n• *work 7 to 10pm today* or *no class tomorrow* keeps the work side honest\n• *plan people time* finds slots this week for ${who}\n• *dinner with sam friday 8pm* for a plan, *remind me to call nani* for a to-do\n• *my week* or *today* for a picture\n\nthe buttons under my replies are shortcuts, never the only way.`,
-    ),
-    botText(
-      view.totalWork
-        ? `here's your week. white is free, grey is work. the white is what we're here for.${tip(next, "picture")}`
-        : `here's your week so far. nothing is marked as work yet, so it all looks open. add your work and this gets real.${tip(next, "picture")}`,
-      {
-        card: weekImage(view, next),
-        buttons: view.totalWork ? [B.ideas, B.addWork, B.help] : [B.addWork, B.ideas, B.help],
-      },
-    ),
+  const nudge = next.notify === false ? "no nudges. say *nudges on* if you change your mind." : `after ${after} on free days i'll nudge you once ${verb} ${who}.`;
+  const legend = view.totalWork ? "your week. white is free, grey is work." : "your week. nothing marked as work yet, so it all looks free.";
+  const tryLine = view.totalWork ? "try *dinner with sam fri 8pm* or *plan people time*." : "try *work 7 to 10pm today* or *class 9 to 5 every weekday*.";
+  return [
+    botText(`${legend} ${nudge}\n\n${tryLine}${tip(next, "picture")}`, {
+      card: weekImage(view, next),
+      buttons: view.totalWork ? [B.ideas, B.addWork, B.help] : [B.addWork, B.ideas, B.help],
+    }),
   ];
-  return out;
 }
 
 /** Apply whatever a setup answer gave, then ask the next unanswered question. */
@@ -502,7 +503,7 @@ function applySetup(next: UserRecord, a: SetupUnderstanding): ChatMessage[] {
     out.push(peopleQuestion());
   } else {
     next.onboarding = "notify";
-    out.push(notifyQuestion());
+    out.push(notifyQuestion(next));
   }
   return out;
 }
@@ -515,13 +516,13 @@ async function handleOnboarding(next: UserRecord, text: string): Promise<ChatMes
   if (step === "notify") {
     if (/^notifications on$/.test(t) || /\b(allow|allowed|yes|sure|ok|okay|go ahead)\b/.test(t)) {
       next.notify = true;
-      return [botText(`done. i'll pop up after ${clockShort(next.settings.protectEveningsAfter || "19:00")} on the days you're free.`), ...finishSetup(next)];
+      return finishSetup(next);
     }
     if (/^notifications off$/.test(t) || /\b(no|not now|later|skip|nah|nope|don't|dont)\b/.test(t)) {
       next.notify = false;
-      return [botText("no problem. i'll say it here in the chat instead."), ...finishSetup(next)];
+      return finishSetup(next);
     }
-    return [botText("tap *Allow nudges* or *Not now*, and then we're done.", { buttons: notifyQuestion().buttons })];
+    return [botText("*Yes, nudge me* or *No nudges*, and we're done.", { buttons: notifyQuestion(next).buttons })];
   }
   // The model reads the answer when one is configured: loose wording, several answers at once, side questions.
   const smart = await understandSetup(step, text, next);
@@ -529,22 +530,22 @@ async function handleOnboarding(next: UserRecord, text: string): Promise<ChatMes
   // Let them escape the questions with the things they might type anyway.
   if (/^(skip all|skip setup|later|not now)$/.test(t)) {
     next.onboarding = "done";
-    return [botText("no problem. say *set up again* whenever. for now: *work 7 to 10pm today*, *my week*, or *today*.", { buttons: [B.addWork, B.week, B.help] })];
+    return [botText("ok. *set up again* whenever. for now: *work 7 to 10pm today* or *my week*.", { buttons: [B.addWork, B.week, B.help] })];
   }
   if (step === "work") {
     const range = parseRange(t);
     if (/\b(varies|vary|depends|no fixed|different every|not fixed|flexible|freelance|student)\b/.test(t) || /^skip$/.test(t)) {
       next.settings = { ...next.settings, workStart: "00:00", workEnd: "00:00" };
       next.onboarding = "unwind";
-      return [botText("no problem. just tell me each day, like *work 7 to 10pm today*, and i'll keep track."), unwindQuestion(next)];
+      return [botText("ok. tell me each day, like *work 7 to 10pm today*."), unwindQuestion(next)];
     }
     if (range) {
       const label = workLabelFor(t);
       next.settings = { ...next.settings, workStart: range.start, workEnd: range.end, workLabel: label };
       next.onboarding = "unwind";
-      return [botText(`got it, ${label.toLowerCase()} ${span(range.start, range.durationMinutes)} on weekdays. if a day is different, just tell me: *work 7 to 10pm today*.`), unwindQuestion(next)];
+      return [botText(`${label.toLowerCase()} ${span(range.start, range.durationMinutes)} on weekdays. got it.`), unwindQuestion(next)];
     }
-    return [botText("didn't catch the hours. say it any way with a start and an end, like *9 to 6* or *i work 7pm to 10pm*, or tap *It varies*.", { buttons: workQuestion().buttons })];
+    return [botText("a start and an end is enough, like *9 to 6*. or tap *It varies*.", { buttons: WORK_BUTTONS })];
   }
   if (step === "unwind") {
     const m = t.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
@@ -561,16 +562,16 @@ async function handleOnboarding(next: UserRecord, text: string): Promise<ChatMes
     }
     if (/\b(varies|depends|skip|not sure|dunno|don't know)\b/.test(t)) {
       next.onboarding = "people";
-      return [botText("ok, i'll go with 7 pm and you can change it any time: *i switch off at 8pm*."), peopleQuestion()];
+      return [botText("i'll go with 7 pm. *i switch off at 8pm* changes it."), peopleQuestion()];
     }
-    return [botText("a time is enough, like *7pm*, *around 8:30* or *usually by 7*.", { buttons: unwindQuestion(next).buttons })];
+    return [botText("a time is enough, like *7pm* or *around 8:30*.", { buttons: unwindQuestion(next).buttons })];
   }
   if (step === "people") {
     const people = parsePeople(text);
     next.people = people;
     next.onboarding = "notify";
     const list = people.length > 1 ? `${people.slice(0, -1).join(", ")} and ${people[people.length - 1]}` : people[0];
-    return [botText(people.length ? `${list}. got it.` : "ok, no one for now. *nudge me to call mum* adds someone any time."), notifyQuestion()];
+    return [botText(people.length ? `${list}. got it.` : "no one for now. *nudge me to call mum* adds someone later."), notifyQuestion(next)];
   }
   return null;
 }
@@ -603,13 +604,14 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     replies.push(...(Array.isArray(m) ? m : [m]));
   };
   const done = () => {
-    // A picture is its own bubble, sent first; the words and buttons come after it.
+    // A picture is its own bubble and every picture goes out before any words.
     for (let i = replies.length - 1; i >= 0; i--) {
       const m = replies[i];
       if (m.card?.type === "image" && m.text.trim()) {
         replies.splice(i, 1, { ...m, id: uid("msg"), text: "", buttons: undefined, list: undefined }, { ...m, card: undefined });
       }
     }
+    replies.sort((a, b) => Number(b.card?.type === "image") - Number(a.card?.type === "image"));
     // Three buttons under the reply (the last bubble): the ones the branch chose, then the most useful defaults.
     const settingUp = Boolean(next.onboarding && next.onboarding !== "done");
     const i = replies.length - 1;
@@ -679,7 +681,7 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     return done();
   }
   if (/^add something$/.test(lower)) {
-    push(botText("sure. what and when?\n• *dinner with sam friday 8pm*\n• *gym tomorrow 7am*\n• *remind me to renew my passport* (no time = a to-do)"));
+    push(botText("what and when? like *dinner with sam friday 8pm*, or *remind me to renew my passport* for a to-do."));
     return done();
   }
   // A block dragged on the day picture arrives as "move Work to 8 pm today"; ask before moving it.
@@ -722,7 +724,7 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
   }
   if (/^notifications (on|off)$/.test(lower)) {
     next.notify = lower.endsWith("on");
-    push(botText(next.notify ? `nudges on. i'll pop up after ${clockShort(next.settings.protectEveningsAfter || "19:00")} on the days you're free.` : "nudges off. i'll still say it here in the chat."));
+    push(botText(next.notify ? `nudges on. after ${clockShort(next.settings.protectEveningsAfter || "19:00")} on free days, once a day.` : "nudges off."));
     return done();
   }
   if (/^who do i call\??$/.test(lower)) {
@@ -860,7 +862,7 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     next.events = [...next.events, ev];
     next.lastLockedEventId = ev.id;
     push(
-      botText(`reserved. *${ev.title}* · ${describeWindow(ev.date, ev.start, ev.durationMinutes)}.\nnothing else gets planned there.${tip(next, "keep")}`, {
+      botText(`reserved: *${ev.title}* · ${describeWindow(ev.date, ev.start, ev.durationMinutes)}.${tip(next, "keep")}`, {
         card: dayPicture(next, ev.date, ev.title),
         buttons: [btn("ideas", "Ideas for this slot", "what should i do with my free time"), B.undo, B.week],
         calendarEventId: ev.id,
@@ -886,10 +888,10 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     const ev = next.events.find((e) => e.id === next.lastLockedEventId) || [...next.events].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""))[0];
     const connected = Boolean(next.calendarConnectedAt);
     if (!ev) {
-      push(botText("nothing saved yet to add. mark something first, like *work 7 to 10pm today*, then say *add to gcal*.", { buttons: [B.addWork, B.ideas, { id: "connect", title: "Connect live feed", action: "connect-feed" }] }));
+      push(botText("nothing saved yet. mark something first, like *work 7 to 10pm today*.", { buttons: [B.addWork, B.ideas, { id: "connect", title: "Connect live feed", action: "connect-feed" }] }));
     } else {
       push(
-        botText(`*${ev.title}* · ${dayWordFor(ev.date, tz)} ${span(ev.start, ev.durationMinutes)}.\ntap *Add to Google Cal*, then Save in the tab that opens.${tip(next, "calendar")}`, {
+        botText(`*${ev.title}* · ${dayWordFor(ev.date, tz)} ${span(ev.start, ev.durationMinutes)}.${tip(next, "calendar")}`, {
           buttons: calendarButtons(connected),
           calendarEventId: ev.id,
         }),
@@ -925,7 +927,7 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     const via = parsed.normalized.match(/\bconnected (?:my )?(google|apple|outlook|copy|snapshot)\b/)?.[1] || "your";
     next.calendarConnectedAt = now;
     next.calendarConnectedVia = via;
-    push(botText(`connected. *${connectedLabel(via)}* now follows your Buffer feed. calendar apps refresh subscribed feeds on their own schedule, usually every few hours, so for something right now use *Add to Google Cal* on that event.`));
+    push(botText(`connected. *${connectedLabel(via)}* follows your Buffer feed now; it refreshes every few hours. for right now, *Add to Google Cal*.`));
   } else if (next.draft.type === "event" && parsed.intent === "cancel") {
     next.draft = { type: "none", missing: [] };
     push(botText("dropped it."));

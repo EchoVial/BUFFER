@@ -18,7 +18,7 @@ export interface FreeWindow {
 
 export interface WeekView {
   from: string;
-  days: Array<{ date: string; freeMinutes: number; workMinutes: number; socialMinutes: number; windows: FreeWindow[] }>;
+  days: Array<{ date: string; freeMinutes: number; workMinutes: number; socialMinutes: number; windows: FreeWindow[]; goneMinutes: number; workLeftMinutes: number }>;
   totalFree: number;
   /** Free minutes that fall on weekday evenings (after the switch-off time). */
   eveningFree: number;
@@ -55,28 +55,35 @@ export function weekView(user: UserRecord, days = 7): WeekView {
     const plan = buildDayPlan(user, date);
     // Free time is what the day plan leaves open (standing hours already sit in it as a block on weekdays).
     const weekend = isWeekendISO(date);
-    const windows: FreeWindow[] = plan.blocks
-      .filter((b) => b.kind === "free")
-      .filter((b) => (i === 0 ? b.endMin > minutesNow + 15 : true))
-      .flatMap((b) => {
-        const start = i === 0 ? Math.max(b.startMin, Math.ceil(minutesNow / 15) * 15) : b.startMin;
-        const parts: Array<[number, number]> = [[start, b.endMin]];
-        return parts
-          .filter(([a, z]) => z - a >= 45)
-          // On a work day the morning before work is not "free for life"; evenings and long daytime gaps are.
-          .filter(([a, z]) => weekend || a >= eveningAt - 60 || z - a >= 120)
-          .map(
-            ([a, z]): FreeWindow => ({
-              date,
-              startMin: a,
-              endMin: z,
-              slot: weekend ? "weekend" : a >= eveningAt - 60 ? "evening" : "day",
-            }),
-          );
-      });
-    const freeMinutes = windows.reduce((s, w) => s + (w.endMin - w.startMin), 0);
+    // Free windows for life: evenings, weekends and long daytime gaps. `fromNow` drops what is already behind us today.
+    const freeWindows = (fromNow: boolean): FreeWindow[] =>
+      plan.blocks
+        .filter((b) => b.kind === "free")
+        .filter((b) => (fromNow ? b.endMin > minutesNow + 15 : true))
+        .flatMap((b) => {
+          const start = fromNow ? Math.max(b.startMin, Math.ceil(minutesNow / 15) * 15) : b.startMin;
+          const parts: Array<[number, number]> = [[start, b.endMin]];
+          return parts
+            .filter(([a, z]) => z - a >= 45)
+            .filter(([a, z]) => weekend || a >= eveningAt - 60 || z - a >= 120)
+            .map(
+              ([a, z]): FreeWindow => ({
+                date,
+                startMin: a,
+                endMin: z,
+                slot: weekend ? "weekend" : a >= eveningAt - 60 ? "evening" : "day",
+              }),
+            );
+        });
+    const windows = freeWindows(i === 0);
+    const sum = (ws: FreeWindow[]) => ws.reduce((s, w) => s + (w.endMin - w.startMin), 0);
+    const freeMinutes = sum(windows);
     const workMinutes = plan.stats.workMinutes;
-    out.days.push({ date, freeMinutes, workMinutes, socialMinutes: plan.stats.socialMinutes, windows });
+    // Today's bar keeps its full height: the free and work time already behind us is drawn as "gone".
+    const isWork = (b: (typeof plan.blocks)[number]) => (b.kind === "event" || b.kind === "todo") && b.subtype === "work";
+    const goneWork = i === 0 ? plan.blocks.filter(isWork).reduce((s, b) => s + Math.max(0, Math.min(b.endMin, minutesNow) - b.startMin), 0) : 0;
+    const goneFree = i === 0 ? Math.max(0, sum(freeWindows(false)) - freeMinutes) : 0;
+    out.days.push({ date, freeMinutes, workMinutes, socialMinutes: plan.stats.socialMinutes, windows, goneMinutes: goneFree + goneWork, workLeftMinutes: Math.max(0, workMinutes - goneWork) });
     out.totalFree += freeMinutes;
     if (weekend) out.weekendFree += freeMinutes;
     else out.eveningFree += windows.filter((w) => w.slot === "evening").reduce((s, w) => s + (w.endMin - w.startMin), 0);
@@ -247,7 +254,8 @@ export function weekImage(view: WeekView, user: UserRecord): ImageCard {
         date: d.date,
         label: `${weekdayShort(d.date)} ${Number(d.date.slice(8))}`,
         freeMinutes: d.freeMinutes,
-        workMinutes: d.workMinutes,
+        workMinutes: d.date === today ? d.workLeftMinutes : d.workMinutes,
+        goneMinutes: d.goneMinutes || undefined,
         best: biggest ? `${shortClock(minutesToHM(biggest.startMin)).replace(/\s/g, "")} to ${shortClock(minutesToHM(biggest.endMin)).replace(/\s/g, "")}` : undefined,
         today: d.date === today,
       };
