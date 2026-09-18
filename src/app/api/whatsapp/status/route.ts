@@ -9,6 +9,7 @@ const GRAPH = "https://graph.facebook.com/v21.0";
  * has to paste it anywhere else:
  *   GET /api/whatsapp/status              what Meta says about the number and the app subscription
  *   GET /api/whatsapp/status?subscribe=1  subscribe this app to the WhatsApp Business Account
+ *   (add &waba=<id> when the account id cannot be discovered from the token)
  *                                         (Cloud API only delivers webhooks to subscribed apps)
  * Nothing secret is returned.
  */
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
   out.phone = phone.ok ? await phone.json() : { error: phone.status, body: (await phone.text()).slice(0, 300) };
 
   // The WABA that owns this number, then whether our app is subscribed to it.
-  const waba = process.env.WA_WABA_ID || (await wabaFor(phoneId, headers));
+  const waba = req.nextUrl.searchParams.get("waba") || process.env.WA_WABA_ID || (await wabaFor(phoneId, headers));
   out.wabaId = waba ?? null;
   if (waba) {
     if (req.nextUrl.searchParams.get("subscribe")) {
