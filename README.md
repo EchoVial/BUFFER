@@ -9,11 +9,11 @@ Three questions, with tap-to-answer buttons: when do you usually work (`9 to 5`,
 - `work 7 to 10pm today`, `shift 9 to 5 tomorrow`: marks work. No confirmation step unless it clashes with something.
 - `my week`, `today`, `tomorrow`: a picture. The week is free (green) stacked on work (grey) per day; a day is a strip plus the blocks as a list.
 - `dinner with sam friday 8pm`, `gym tomorrow 7am`: plans. `remind me to call nani`: a to-do (no time).
-- `keep friday evening free`: a *Kept for you* block so nothing else gets planned there.
+- `reserve friday evening` (or `keep friday evening free`): a *Reserved for you* block so nothing else gets planned there.
 - `undo`, `+30 min`, `make it 2h`, `move gym to 8pm`, `done with the deck`: changes in plain words.
 - `nudge me to call mum`, `who do i call`: the people behind the evening nudge.
 
-Each feature is explained once, in a bracketed line, the first time it appears. `help` shows the whole thing in five lines; `set up again` reruns the questions.
+Every reply ends in three buttons, worded as what they do (See my week, Mark work hours, Push 30 min later). Each feature is explained once, in a bracketed line, the first time it appears. `help` shows the whole thing in five lines; `set up again` reruns the questions.
 
 ## How it understands you
 

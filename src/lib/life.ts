@@ -107,15 +107,17 @@ export function windowLabel(w: FreeWindow): string {
   return `${weekdayShort(w.date)} ${shortClock(minutesToHM(w.startMin))} to ${shortClock(minutesToHM(w.endMin))}`;
 }
 
-/** "Fri evening", "Sat afternoon", "Sun morning": for button labels. */
+/** "Fri evening", "Sat midday", "Sun morning": short enough for a 20-character button after "Reserve ". */
 export function slotName(w: FreeWindow): string {
   const h = Math.floor(w.startMin / 60);
-  const part = h >= 17 ? "evening" : h >= 12 ? "afternoon" : "morning";
+  const part = h >= 17 ? "evening" : h >= 12 ? "midday" : "morning";
   return `${weekdayShort(w.date)} ${part}`;
 }
 
 export interface Suggestion {
   title: string;
+  /** Button text, two or three words. */
+  label: string;
   kind: EventKind;
   window: FreeWindow;
   durationMinutes: number;
@@ -131,22 +133,24 @@ export function suggestForFreeTime(user: UserRecord, view: WeekView): Suggestion
   const notes = (user.notes || "").toLowerCase();
   const socialGap = view.totalSocial < user.settings.socialMinutesPerDay * 3;
   const hasHealth = user.events.some((e) => e.kind === "health" && e.date >= view.from);
-  const pool: Array<{ title: string; kind: EventKind; minutes: number; why: string; prefer: FreeWindow["slot"][] }> = [];
+  const pool: Array<{ title: string; label: string; kind: EventKind; minutes: number; why: string; prefer: FreeWindow["slot"][] }> = [];
   const friend = notes.match(/friend[s]?:?\s*([a-z][a-z .]+)/)?.[1]?.split(/[ ,.]/)[0];
   const people = user.people?.length ? user.people : friend ? [friend] : [];
   const cap = (n: string) => n.charAt(0).toUpperCase() + n.slice(1);
   pool.push({
     title: people[0] ? `Call ${cap(people[0])}` : "Dinner or a call with a friend",
+    label: people[0] ? `Plan a call to ${cap(people[0])}`.slice(0, 20) : "Plan time with a friend".slice(0, 20),
     kind: "social",
     minutes: 45,
     why: socialGap ? "you have not had much people time this week" : "keeps the week from being only work",
     prefer: ["evening", "weekend"],
   });
   if (people[1]) {
-    pool.push({ title: `Call ${cap(people[1])}`, kind: "social", minutes: 30, why: "a short one counts", prefer: ["evening", "weekend", "day"] });
+    pool.push({ title: `Call ${cap(people[1])}`, label: `Plan a call to ${cap(people[1])}`.slice(0, 20), kind: "social", minutes: 30, why: "a short one counts", prefer: ["evening", "weekend", "day"] });
   }
   pool.push({
     title: /run|gym|yoga|swim|cycl/.test(notes) ? "Move: gym, run or a long walk" : "A long walk, no headphones",
+    label: /run|gym|yoga|swim|cycl/.test(notes) ? "Plan a workout" : "Plan a long walk",
     kind: "health",
     minutes: 45,
     why: hasHealth ? "one more turn for the body" : "nothing for your body is on the calendar yet",
@@ -154,6 +158,7 @@ export function suggestForFreeTime(user: UserRecord, view: WeekView): Suggestion
   });
   pool.push({
     title: "An hour that is yours",
+    label: "Book an hour for me",
     kind: "personal",
     minutes: 60,
     why: "no screens, no to-dos, whatever you like",
@@ -162,6 +167,7 @@ export function suggestForFreeTime(user: UserRecord, view: WeekView): Suggestion
   if (!people.length) {
     pool.push({
       title: "Call home",
+      label: "Plan a call home",
       kind: "social",
       minutes: 30,
       why: "a call home counts",
@@ -177,7 +183,7 @@ export function suggestForFreeTime(user: UserRecord, view: WeekView): Suggestion
       view.best.find((x) => !used.has(`${x.date}${x.startMin}`) && x.endMin - x.startMin >= p.minutes);
     if (!w) continue;
     used.add(`${w.date}${w.startMin}`);
-    picks.push({ title: p.title, kind: p.kind, window: w, durationMinutes: p.minutes, why: p.why });
+    picks.push({ title: p.title, label: p.label, kind: p.kind, window: w, durationMinutes: p.minutes, why: p.why });
     if (picks.length === 3) break;
   }
   return picks;
@@ -203,7 +209,7 @@ export function protectPayload(w: FreeWindow, tz: string, forWhom: "people" | "m
 /** A held window: a real event so work cannot be scheduled over it. */
 export function protectedEvent(date: string, start: string, durationMinutes: number, kind: EventKind, label?: string): Omit<CalendarEvent, "id" | "createdAt"> {
   return {
-    title: label ?? (kind === "social" ? "Kept for people" : "Kept for you"),
+    title: label ?? (kind === "social" ? "Reserved for people" : "Reserved for you"),
     kind,
     date,
     start,

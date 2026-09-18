@@ -62,48 +62,52 @@ function userText(text: string): ChatMessage {
 const btn = (id: string, title: string, payload: string): ReplyButton => ({ id, title: title.slice(0, 20), payload });
 
 const B = {
-  week: btn("week", "My week", "my week"),
-  today: btn("today", "Today", "today"),
-  addWork: btn("work", "Add work", "add work"),
-  add: btn("add", "Add something", "add something"),
-  ideas: btn("ideas", "Ideas", "what should i do with my free time"),
+  week: btn("week", "See my week", "my week"),
+  today: btn("today", "See today", "today"),
+  addWork: btn("work", "Mark work hours", "add work"),
+  add: btn("add", "Add a plan or to-do", "add something"),
+  ideas: btn("ideas", "Ideas for free time", "what should i do with my free time"),
   help: btn("help", "How this works", "help"),
-  todos: btn("todos", "My to-dos", "my to-dos"),
-  undo: btn("undo", "Undo", "undo"),
-  later30: btn("later", "+30 min", "make it 30m later"),
+  todos: btn("todos", "See my to-dos", "my to-dos"),
+  undo: btn("undo", "Undo (remove it)", "undo"),
+  later30: btn("later", "Push 30 min later", "make it 30m later"),
   cancel: btn("cancel", "Cancel", "cancel"),
 };
 
+/** Every reply gets three buttons; these fill the gaps, most useful first. */
+const DEFAULT_BUTTONS: ReplyButton[] = [];
+
 const CHANGE_BUTTONS: ReplyButton[] = [
   btn("apply", "Make the change", "make the change"),
-  btn("leave", "Leave it", "leave it"),
+  btn("leave", "Leave it as is", "leave it"),
 ];
 
 const KIND_BUTTONS: ReplyButton[] = [
-  btn("work", "Work", "it's work"),
-  btn("social", "With people", "it's social"),
-  btn("personal", "For me", "it's personal"),
+  btn("work", "It's work", "it's work"),
+  btn("social", "It's with people", "it's social"),
+  btn("personal", "It's for me", "it's personal"),
 ];
+DEFAULT_BUTTONS.push(B.week, B.today, B.addWork, B.help);
 
 /** The whole menu. Short on purpose: see, tell, more. */
 const START_LIST: InteractiveList = {
-  button: "Menu",
+  button: "See all options",
   footer: "or just text me like a friend",
   sections: [
     {
       title: "See",
       rows: [
-        { id: "week", title: "My week", description: "Where you're free, day by day", payload: "my week" },
-        { id: "today", title: "Today", description: "Today as a picture", payload: "today" },
+        { id: "week", title: "See my week", description: "Where you're free, day by day", payload: "my week" },
+        { id: "today", title: "See today", description: "Today as a picture", payload: "today" },
       ],
     },
     {
       title: "Tell me",
       rows: [
-        { id: "work", title: "I have work", description: "e.g. work 7 to 10pm today", payload: "add work" },
-        { id: "add", title: "A plan or a to-do", description: "dinner with sam fri 8pm · remind me to call nani", payload: "add something" },
-        { id: "keep", title: "Keep an evening free", description: "I block it so nothing else lands there", payload: "keep an evening free this week" },
-        { id: "people", title: "Who I call", description: "The people I nudge you about", payload: "who do i call" },
+        { id: "work", title: "Mark work hours", description: "e.g. work 7 to 10pm today", payload: "add work" },
+        { id: "add", title: "Add a plan or to-do", description: "dinner with sam fri 8pm · remind me to call nani", payload: "add something" },
+        { id: "keep", title: "Reserve an evening", description: "I block it so nothing else lands there", payload: "reserve an evening this week" },
+        { id: "people", title: "People I call", description: "Who I nudge you to ring when you're free", payload: "who do i call" },
       ],
     },
     {
@@ -129,7 +133,7 @@ function helpText(): string {
     "2. ask *my week* or *today*. i send a picture.",
     "3. add anything else the same way: *dinner with sam friday 8pm*, *gym tomorrow 7am*. no time means a to-do: *remind me to call nani*.",
     "4. when you're free after work, i nudge you to call someone. *nudge me to call mum* adds a person.",
-    "5. *keep friday evening free* blocks it so nothing else lands there.",
+    "5. *reserve friday evening* blocks it so nothing else lands there.",
     "",
     "change or finish things in plain words: *move gym to 8pm*, *done with the deck*, *undo*.",
   ].join("\n");
@@ -162,8 +166,8 @@ const span = (start: string, minutes: number) => `${clockShort(start)} to ${cloc
 
 /** One-line explanations, each shown once per person. */
 const TIPS: Record<string, string> = {
-  keep: "(keeping a window free = i put a block called *Kept for you* on your calendar, so nothing else gets planned there. you can undo it any time.)",
-  save: "(*Undo* takes it off again. *+30 min* pushes it later.)",
+  keep: "(reserving = i put a block called *Reserved for you* on your calendar, so nothing else gets planned there. *Undo* removes it.)",
+  save: "(tap *Undo* to remove it, or *Push 30 min later* to move it.)",
   todo: "(a to-do has no fixed time. i slot it into a free gap and show it on your day.)",
   picture: "(tap the picture to see it big.)",
 };
@@ -423,7 +427,7 @@ function unwindQuestion(next: UserRecord): ChatMessage {
 
 function peopleQuestion(): ChatMessage {
   return botText("last one: who should i nudge you to call when you're free? a name or two, like *mum, dad* or *nani and rohan*.", {
-    buttons: [btn("skip", "Skip", "skip")],
+    buttons: [btn("skip", "Skip this", "skip")],
   });
 }
 
@@ -435,7 +439,7 @@ function finishSetup(next: UserRecord): ChatMessage[] {
   const view = weekView(next);
   const out: ChatMessage[] = [
     botText(
-      `that's the setup. when you're free after ${after}, i'll send one small nudge to call ${who}. never more than once a day.\n\nfrom here, just text me:\n• *work 7 to 10pm today* to mark work\n• *my week* or *today* for a picture\n• *dinner with sam friday 8pm*, or *remind me to call nani* for a to-do`,
+      `that's the setup. when you're free after ${after}, i'll send one small nudge to call ${who}. never more than once a day.\n\nfrom here, just text me:\n• *work 7 to 10pm today* to mark work hours\n• *my week* or *today* for a picture\n• *dinner with sam friday 8pm* for a plan, *remind me to call nani* for a to-do`,
     ),
     botText(
       view.totalWork
@@ -529,6 +533,17 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     replies.push(...(Array.isArray(m) ? m : [m]));
   };
   const done = () => {
+    // Three buttons under every reply: the ones the branch chose, then the most useful defaults.
+    const settingUp = Boolean(next.onboarding && next.onboarding !== "done");
+    for (let i = 0; i < replies.length; i++) {
+      const m = replies[i];
+      if (m.list || settingUp) continue;
+      const have = m.buttons ?? [];
+      if (have.length >= 3) continue;
+      const seen = new Set(have.map((b) => b.payload ?? b.action));
+      const extra = DEFAULT_BUTTONS.filter((b) => !seen.has(b.payload)).slice(0, 3 - have.length);
+      replies[i] = { ...m, buttons: [...have, ...extra] };
+    }
     next.messages = [...next.messages, ...replies];
     return { user: next, replies };
   };
@@ -640,7 +655,7 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     const ev = finalizeEvent({ title: `Call ${who}`, kind: "social", date: todayISO, start, durationMinutes: 20 });
     next.events = [...next.events, ev];
     next.lastLockedEventId = ev.id;
-    push(botText(`go on then. say hi from me.\n\ni've put *Call ${who}* on today so it counts.`, { buttons: [B.today, B.undo] }));
+    push(botText(`go on then. say hi from me.\n\ni've put *Call ${who}* on today so it counts.`, { buttons: [B.today, B.undo, B.week] }));
     return done();
   }
   if (/^skip the call today$/.test(lower)) {
@@ -670,8 +685,8 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
         ? `this week you have about *${freeSummary(view)}*, around ${hours(view.totalWork)} of work.`
         : "the next 7 days are full edge to edge. that's the first thing to fix.";
     const best = view.best.length ? `\nbiggest gaps: ${view.best.slice(0, 3).map(windowLabel).join(" · ")}.` : "";
-    const nudge = view.best.length ? "\nwant me to keep one of those free?" : "";
-    const buttons = view.best.slice(0, 2).map((w, i) => btn(`keep-${i}`, `Keep ${slotName(w)}`, protectPayload(w, tz, "me")));
+    const nudge = view.best.length ? "\nwant me to reserve one of those for you?" : "";
+    const buttons = view.best.slice(0, 2).map((w, i) => btn(`keep-${i}`, `Reserve ${slotName(w)}`, protectPayload(w, tz, "me")));
     push(
       botText(`${lead}${best}${nudge}${view.best.length ? tip(next, "keep") : ""}${tip(next, "picture")}`, {
         card: weekImage(view, next),
@@ -682,12 +697,12 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     const view = weekView(next);
     const picks = suggestForFreeTime(next, view);
     if (!picks.length) {
-      push(botText("i can't find a 45-minute gap in the next week. say *keep thursday evening free* and i'll make one.", { buttons: [btn("keep", "Keep an evening", "keep an evening free this week")] }));
+      push(botText("i can't find a 45-minute gap in the next week. say *reserve thursday evening* and i'll make one.", { buttons: [btn("keep", "Reserve an evening", "reserve an evening this week")] }));
     } else {
       const lines = picks.map((p) => `• *${p.title}* · ${windowLabel(p.window)} · ${p.why}`);
       push(
         botText(`a few ways to use the room you have:\n${lines.join("\n")}\n\ntap one and i'll put it on your calendar.`, {
-          buttons: picks.map((p, i) => btn(`idea-${i}`, p.title, suggestionPayload(p, tz))),
+          buttons: picks.map((p, i) => btn(`idea-${i}`, p.label, suggestionPayload(p, tz))),
         }),
       );
     }
@@ -701,7 +716,7 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
       const candidates = date ? view.best.filter((w) => w.date === date) : view.best.filter((w) => w.slot !== "day");
       const w = candidates[0] ?? view.best[0];
       if (!w) {
-        push(botText("there's no open evening left this week to keep. tell me a day and time and i'll clear it, like *keep saturday 10am to 12 free*."));
+        push(botText("there's no open evening left this week to reserve. tell me a day and time and i'll clear it, like *reserve saturday 10am to 12*."));
         return done();
       }
       date = w.date;
@@ -710,14 +725,14 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     }
     duration = duration ?? 120;
     const custom =
-      parsed.event.title && !/^(protect|keep|hold|block|free|evening|weekend|kept)/i.test(parsed.event.title) && !/(for me|for people|for myself)/i.test(parsed.event.title) ? parsed.event.title : undefined;
+      parsed.event.title && !/^(protect|keep|hold|block|free|evening|weekend|kept|reserve|reserved)/i.test(parsed.event.title) && !/(for me|for people|for myself)/i.test(parsed.event.title) ? parsed.event.title : undefined;
     const ev = finalizeEvent(protectedEvent(date, start, duration, kind, custom));
     next.events = [...next.events, ev];
     next.lastLockedEventId = ev.id;
     push(
-      botText(`kept. *${ev.title}* · ${describeWindow(ev.date, ev.start, ev.durationMinutes)}.\nnothing else gets planned there.${tip(next, "keep")}`, {
+      botText(`reserved. *${ev.title}* · ${describeWindow(ev.date, ev.start, ev.durationMinutes)}.\nnothing else gets planned there.${tip(next, "keep")}`, {
         card: dayPicture(next, ev.date, ev.title),
-        buttons: [B.week, btn("ideas", "Ideas for it", "what should i do with my free time"), B.undo],
+        buttons: [btn("ideas", "Ideas for this slot", "what should i do with my free time"), B.undo, B.week],
         calendarEventId: ev.id,
       }),
     );
@@ -989,7 +1004,7 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
   } else {
     push(
       botText(parsed.replyHint ? `${parsed.replyHint}\nshould i treat *${parsed.event.title}* as:` : `not sure i got that. is *${parsed.event.title}* a plan with a time, or a to-do?`, {
-        buttons: [btn("as-event", "A plan", `plan ${parsed.event.title}`), btn("as-todo", "A to-do", `remind me to ${parsed.event.title}`), B.help],
+        buttons: [btn("as-event", "A plan with a time", `plan ${parsed.event.title}`), btn("as-todo", "A to-do, no time", `remind me to ${parsed.event.title}`), B.help],
       }),
     );
   }
@@ -1075,13 +1090,13 @@ export function dailyDigest(user: UserRecord): { message?: ChatMessage; patch?: 
   const view = weekView(user);
   const best = view.best[0];
   const text = best
-    ? `morning. this week you have about *${freeSummary(view)}*. the biggest gap is ${windowLabel(best)}. want me to keep it free?`
-    : "morning. the next 7 days are wall to wall. say *keep an evening free* and i'll carve one out.";
+    ? `morning. this week you have about *${freeSummary(view)}*. the biggest gap is ${windowLabel(best)}. want me to reserve it for you?`
+    : "morning. the next 7 days are wall to wall. say *reserve an evening* and i'll carve one out.";
   return {
     message: botText(text, {
       buttons: best
-        ? [btn("keep", "Keep it free", protectPayload(best, user.settings.timezone, "me")), B.week]
-        : [btn("keep", "Keep an evening free", "keep an evening free this week")],
+        ? [btn("keep", "Reserve that slot", protectPayload(best, user.settings.timezone, "me")), B.week, B.today]
+        : [btn("keep", "Reserve an evening", "reserve an evening this week"), B.week, B.today],
     }),
     patch: { lastDigestDate: today },
   };
@@ -1111,8 +1126,12 @@ export function unwindNudge(user: UserRecord): { message?: ChatMessage; patch?: 
     ? `you're off the clock. ${who} would love to hear from you. even ten minutes counts.`
     : "you're off the clock. a ten-minute call to someone you love counts more than it feels like it does.";
   const buttons = who
-    ? [btn("now", `Calling ${who} now`, `calling ${who.toLowerCase()} now`), btn("later", "Later tonight", `remind me to call ${who.toLowerCase()} later tonight`), btn("skip", "Not today", "skip the call today")]
-    : [btn("who", "Add someone", "nudge me to call "), btn("skip", "Not today", "skip the call today")];
+    ? [
+        btn("now", `Calling ${who} now`.length <= 20 ? `Calling ${who} now` : `Call ${who} now`, `calling ${who.toLowerCase()} now`),
+        btn("later", "Remind me tonight", `remind me to call ${who.toLowerCase()} later tonight`),
+        btn("skip", "Skip today", "skip the call today"),
+      ]
+    : [btn("who", "Add a person", "nudge me to call "), btn("skip", "Skip today", "skip the call today"), B.today];
   return {
     message: botText(text, { buttons }),
     patch: { lastNudgeDate: today, nudgeIndex: idx + 1 },

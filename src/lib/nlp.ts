@@ -540,7 +540,7 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
     intent = "set_pref";
   } else if (
     /\b(keep|hold|block|protect|reserve|save)\b.*\b(free|for me|for myself|for people|for friends|evening|evenings|weekend|clear)\b/.test(normalized) ||
-    /\b(protect|block off|hold)\b/.test(normalized)
+    /\b(protect|block off|hold|reserve)\b/.test(normalized)
   ) {
     intent = "protect";
   } else if (
