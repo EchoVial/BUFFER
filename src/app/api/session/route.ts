@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createUser, getAppSettings, getUserById, getUserByName, upsertUser } from "@/lib/store";
 import { beginChat } from "@/lib/bot";
+import { extractName } from "@/lib/names";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = (await req.json()) as { name?: string; timezone?: string };
-  const name = (body.name || "").trim();
+  const typed = (body.name || "").trim();
+  const name = extractName(typed);
   if (name.length < 2) {
     return NextResponse.json({ error: "Tell me your name (at least 2 letters)." }, { status: 400 });
   }
@@ -50,7 +52,7 @@ export async function POST(req: NextRequest) {
         {
           id: `msg_name_${user.id}`,
           role: "user",
-          text: user.name,
+          text: typed,
           createdAt: user.createdAt,
           status: "read",
         },
