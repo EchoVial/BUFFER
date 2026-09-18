@@ -636,6 +636,7 @@ export function WhatsAppApp() {
                     tail={i === 0 || g.msgs[i - 1].role !== m.role}
                     onButton={(button) => handleReplyButton(m, button)}
                     onList={() => setListFor(m)}
+                    onSend={(text) => void send(text)}
                   />
                 ))}
               </div>
@@ -915,11 +916,13 @@ function Bubble({
   tail,
   onButton,
   onList,
+  onSend,
 }: {
   message: ChatMessage;
   tail: boolean;
   onButton: (button: ReplyButton) => void;
   onList: () => void;
+  onSend?: (text: string) => void;
 }) {
   const mine = message.role === "user";
   return (
@@ -934,7 +937,7 @@ function Bubble({
         <div className={cn("px-2 pt-1.5 pb-1", message.card?.type === "image" && "px-1 pt-1")}>
           {message.card?.type === "image" ? (
             <>
-              <MessageCards message={message} />
+              <MessageCards message={message} onSend={message.role === "bot" ? onSend : undefined} />
               {message.text.trim() ? (
                 <div className="mt-1 whitespace-pre-wrap break-words px-1 text-[14.2px] leading-[19px] text-(--wa-text) [overflow-wrap:anywhere]">
                   <WhatsAppText text={message.text} />
@@ -946,7 +949,7 @@ function Bubble({
               <div className="whitespace-pre-wrap break-words text-[14.2px] leading-[19px] text-(--wa-text) [overflow-wrap:anywhere]">
                 <WhatsAppText text={message.text} />
               </div>
-              <MessageCards message={message} />
+              <MessageCards message={message} onSend={message.role === "bot" ? onSend : undefined} />
             </>
           )}
           <p className={cn("mt-0.5 flex items-center justify-end gap-1 text-[11px] text-(--wa-time)", message.card?.type === "image" && "px-1")}>

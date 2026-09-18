@@ -105,7 +105,7 @@ export type ImageCard =
       fromMin: number;
       toMin: number;
       nowMin?: number;
-      blocks: Array<{ title: string; kind: string; startMin: number; endMin: number }>;
+      blocks: Array<{ title: string; kind: string; startMin: number; endMin: number; id?: string; movable?: boolean }>;
       footer: string;
       /** Title of a block to outline as "new" (proposals). */
       highlight?: string;

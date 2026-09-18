@@ -111,8 +111,11 @@ function WeekSvg({ card }: { card: Extract<ImageCard, { variant: "week" }> }) {
   );
 }
 
-/** One day: a strip from wake to sleep, then the blocks as a short list. */
-function DaySvg({ card, h }: { card: Extract<ImageCard, { variant: "day" }>; h: number }) {
+type DayBlock = Extract<ImageCard, { variant: "day" }>["blocks"][number];
+type Drag = { id: string; startMin: number; moved: boolean };
+
+/** One day: a strip from wake to sleep, then the blocks as a short list. Saved events can be dragged along the strip. */
+function DaySvg({ card, h, drag, onDragStart }: { card: Extract<ImageCard, { variant: "day" }>; h: number; drag: Drag | null; onDragStart?: (b: DayBlock, e: React.PointerEvent) => void }) {
   const left = 20;
   const right = W - 20;
   const from = card.fromMin;
@@ -122,7 +125,12 @@ function DaySvg({ card, h }: { card: Extract<ImageCard, { variant: "day" }>; h: 
   const laneH = 40;
   const ticks: number[] = [];
   for (let m = Math.ceil(from / 180) * 180; m <= to; m += 180) ticks.push(m);
-  const blocks = card.blocks.filter((b) => b.endMin > from && b.startMin < to && b.kind !== "free" && b.kind !== "sleep").sort((a, b) => a.startMin - b.startMin);
+  // While a block is being dragged, draw it where the finger is.
+  const live = (b: DayBlock): DayBlock => (drag && b.id && b.id === drag.id ? { ...b, startMin: drag.startMin, endMin: drag.startMin + (b.endMin - b.startMin) } : b);
+  const blocks = card.blocks
+    .filter((b) => b.endMin > from && b.startMin < to && b.kind !== "free" && b.kind !== "sleep")
+    .map(live)
+    .sort((a, b) => a.startMin - b.startMin);
   const rows = blocks.slice(0, 6);
   const rowY = laneY + laneH + 46;
   return (
@@ -139,20 +147,37 @@ function DaySvg({ card, h }: { card: Extract<ImageCard, { variant: "day" }>; h: 
       {blocks.map((b, i) => {
         const bx = x(b.startMin);
         const bw = Math.max(4, x(b.endMin) - bx);
-        const hi = card.highlight && b.title === card.highlight;
+        const dragging = Boolean(drag && b.id && drag.id === b.id);
+        // Same title twice (a standing "Work" block and a marked one): the saved one is the new one.
+        const hi = (card.highlight && b.title === card.highlight && (b.id || !blocks.some((o) => o.title === b.title && o.id))) || dragging;
+        const grab = Boolean(b.movable && b.id && onDragStart);
         return (
-          <rect
-            key={`${b.title}-${i}`}
-            x={bx + 1}
-            y={laneY + 5}
-            width={bw - 2}
-            height={laneH - 10}
-            rx="5"
-            fill={kindColor(b.kind)}
-            opacity={b.kind === "work" ? 0.9 : 0.95}
-            stroke={hi ? "#ffffff" : "none"}
-            strokeWidth={hi ? 2 : 0}
-          />
+          <g key={`${b.id ?? b.title}-${i}`}>
+            <rect
+              x={bx + 1}
+              y={laneY + 5}
+              width={bw - 2}
+              height={laneH - 10}
+              rx="5"
+              fill={kindColor(b.kind)}
+              opacity={dragging ? 1 : b.kind === "work" ? 0.9 : 0.95}
+              stroke={hi ? "#ffffff" : "none"}
+              strokeWidth={hi ? 2 : 0}
+              style={grab ? { cursor: dragging ? "grabbing" : "grab", touchAction: "none" } : undefined}
+              onPointerDown={grab ? (e) => onDragStart!(b, e) : undefined}
+            />
+            {grab && bw > 26 && (
+              <g pointerEvents="none" opacity="0.7">
+                <line x1={bx + bw - 9} x2={bx + bw - 9} y1={laneY + 14} y2={laneY + laneH - 14} stroke="#0b141a" strokeWidth="1.5" />
+                <line x1={bx + bw - 5} x2={bx + bw - 5} y1={laneY + 14} y2={laneY + laneH - 14} stroke="#0b141a" strokeWidth="1.5" />
+              </g>
+            )}
+            {dragging && (
+              <text x={Math.min(Math.max(bx + bw / 2, left + 40), right - 40)} y={laneY - 12} textAnchor="middle" fill={INK} fontSize="12.5" fontWeight="700" fontFamily={FONT}>
+                {clockRange(b.startMin, b.endMin)}
+              </text>
+            )}
+          </g>
         );
       })}
       {card.nowMin !== undefined && card.nowMin >= from && card.nowMin <= to && (
@@ -168,7 +193,8 @@ function DaySvg({ card, h }: { card: Extract<ImageCard, { variant: "day" }>; h: 
       )}
       {rows.map((b, i) => {
         const y = rowY + i * 28;
-        const hi = card.highlight && b.title === card.highlight;
+        const dragging = Boolean(drag && b.id && drag.id === b.id);
+        const hi = (card.highlight && b.title === card.highlight && (b.id || !blocks.some((o) => o.title === b.title && o.id))) || dragging;
         const word = kindWord(b.kind);
         const title = b.title.length > 26 ? `${b.title.slice(0, 25)}…` : b.title;
         return (
@@ -182,7 +208,7 @@ function DaySvg({ card, h }: { card: Extract<ImageCard, { variant: "day" }>; h: 
             </text>
             {hi ? (
               <text x={right} y={y} textAnchor="end" fill={FREE} fontSize="11" fontWeight="700" fontFamily={FONT}>
-                new
+                {dragging ? "moving" : "new"}
               </text>
             ) : (
               word && (
@@ -213,10 +239,47 @@ function dayHeight(card: Extract<ImageCard, { variant: "day" }>): number {
   return 158 + Math.max(1, n + extra) * 28 + 48;
 }
 
-export function ScheduleImage({ card }: { card: ImageCard }) {
+export function ScheduleImage({ card, onMove }: { card: ImageCard; onMove?: (block: DayBlock, newStartMin: number) => void }) {
   const [open, setOpen] = useState(false);
+  const [drag, setDrag] = useState<Drag | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const dragRef = useRef<{ block: DayBlock; x0: number; start0: number; pxPerMin: number; last: number } | null>(null);
+  const justDragged = useRef(false);
   const h = card.variant === "week" ? WEEK_H : dayHeight(card);
+
+  function startDrag(block: DayBlock, e: React.PointerEvent) {
+    if (card.variant !== "day" || !block.id) return;
+    const svg = svgRef.current;
+    if (!svg) return;
+    e.preventDefault();
+    e.stopPropagation();
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    const laneWidth = (svg.getBoundingClientRect().width / W) * (W - 40);
+    dragRef.current = { block, x0: e.clientX, start0: block.startMin, pxPerMin: laneWidth / (card.toMin - card.fromMin), last: block.startMin };
+    setDrag({ id: block.id, startMin: block.startMin, moved: false });
+  }
+
+  function moveDrag(e: React.PointerEvent) {
+    const d = dragRef.current;
+    if (!d || card.variant !== "day") return;
+    const len = d.block.endMin - d.block.startMin;
+    const raw = d.start0 + (e.clientX - d.x0) / d.pxPerMin;
+    const snapped = Math.round(raw / 15) * 15;
+    const start = Math.min(card.toMin - len, Math.max(card.fromMin, snapped));
+    d.last = start;
+    setDrag({ id: d.block.id!, startMin: start, moved: start !== d.start0 });
+  }
+
+  function endDrag() {
+    const d = dragRef.current;
+    dragRef.current = null;
+    setDrag(null);
+    if (!d) return;
+    // Any drag, moved or not, must not open the lightbox on the click that follows.
+    justDragged.current = true;
+    window.setTimeout(() => (justDragged.current = false), 400);
+    if (d.last !== d.start0) onMove?.(d.block, d.last);
+  }
 
   async function save() {
     const svg = svgRef.current;
@@ -244,14 +307,33 @@ export function ScheduleImage({ card }: { card: ImageCard }) {
   }
 
   const picture = (
-    <svg ref={svgRef} viewBox={`0 0 ${W} ${h}`} width="100%" role="img" aria-label={card.title} xmlns="http://www.w3.org/2000/svg" style={{ display: "block", borderRadius: 8 }}>
-      {card.variant === "week" ? <WeekSvg card={card} /> : <DaySvg card={card} h={h} />}
+    <svg
+      ref={svgRef}
+      viewBox={`0 0 ${W} ${h}`}
+      width="100%"
+      role="img"
+      aria-label={card.title}
+      xmlns="http://www.w3.org/2000/svg"
+      style={{ display: "block", borderRadius: 8 }}
+      onPointerMove={moveDrag}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+    >
+      {card.variant === "week" ? <WeekSvg card={card} /> : <DaySvg card={card} h={h} drag={drag} onDragStart={onMove ? startDrag : undefined} />}
     </svg>
   );
 
   return (
     <>
-      <button type="button" className="block w-full overflow-hidden rounded-lg" onClick={() => setOpen(true)} aria-label="Open image">
+      <button
+        type="button"
+        className="block w-full overflow-hidden rounded-lg"
+        onClick={() => {
+          if (justDragged.current) return;
+          setOpen(true);
+        }}
+        aria-label="Open image"
+      >
         {picture}
       </button>
       {open && (

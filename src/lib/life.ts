@@ -305,6 +305,9 @@ export function dayImage(plan: DayPlan, user: UserRecord, label: string, highlig
       kind: b.kind === "event" ? (b.subtype ?? "work") : b.kind === "social" ? "social" : b.kind,
       startMin: b.startMin,
       endMin: b.endMin,
+      id: b.id,
+      // Saved events can be dragged to a new time on the picture; standing hours, to-dos and free time cannot.
+      movable: b.kind === "event" && Boolean(b.id),
     }));
   const s = plan.stats;
   const pretty = prettyDate(plan.date);

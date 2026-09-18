@@ -17,6 +17,7 @@ import { dayImage, describeWindow, freeLine, protectPayload, protectedEvent, slo
 import { findNamedItem } from "./match";
 import { buildDayPlan, proposeEvent } from "./scheduler";
 import {
+  addDaysISO,
   dateISO,
   durationLabel,
   hmToMinutes,
@@ -172,7 +173,7 @@ const TIPS: Record<string, string> = {
   keep: "(reserving = i put a block called *Reserved for you* on your calendar, so nothing else gets planned there. *Undo* removes it.)",
   save: "(tap *Undo* to remove it, or *Push 30 min later* to move it.)",
   todo: "(a to-do has no fixed time. i slot it into a free gap and show it on your day.)",
-  picture: "(tap the picture to see it big.)",
+  picture: "(tap the picture to see it big. drag a block to move it.)",
   calendar: "(google won't let me write into your calendar without you signing in there, so the button opens google calendar with it filled in and you tap Save. *Connect live feed* subscribes google to everything i save, but google only refreshes feeds every few hours.)",
 };
 
@@ -679,6 +680,44 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
   }
   if (/^add something$/.test(lower)) {
     push(botText("sure. what and when?\n• *dinner with sam friday 8pm*\n• *gym tomorrow 7am*\n• *remind me to renew my passport* (no time = a to-do)"));
+    return done();
+  }
+  // A block dragged on the day picture arrives as "move Work to 8 pm today"; ask before moving it.
+  const dragged = lower.match(/^move (.+?) to (\d{1,2}(?::\d{2})?\s*(?:am|pm)) (today|tomorrow|sunday|monday|tuesday|wednesday|thursday|friday|saturday|\d{4}-\d{2}-\d{2})$/);
+  if (dragged) {
+    const title = dragged[1].trim();
+    const t = dragged[2].replace(/\s+/g, "");
+    let h = Number(t.match(/^\d{1,2}/)![0]);
+    const mm = Number(t.match(/:(\d{2})/)?.[1] ?? 0);
+    if (/pm$/.test(t) && h < 12) h += 12;
+    if (/am$/.test(t) && h === 12) h = 0;
+    const start = minutesToHM(h * 60 + mm);
+    const word = dragged[3];
+    const date = /^\d{4}/.test(word) ? word : word === "today" ? todayISO : word === "tomorrow" ? addDaysISO(todayISO, 1) : (() => {
+      const target = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"].indexOf(word);
+      let delta = (target - new Date(`${todayISO}T12:00:00`).getDay() + 7) % 7;
+      if (delta === 0) delta = 7;
+      return addDaysISO(todayISO, delta);
+    })();
+    const ev = next.events.find((e) => e.date === date && e.title.toLowerCase() === title.toLowerCase()) ?? next.events.find((e) => e.date === date && e.title.toLowerCase().includes(title.toLowerCase()));
+    if (!ev) {
+      push(botText(`i can't find *${cap(title)}* on ${dayWordFor(date, tz)} any more. say *${dayWordFor(date, tz)}* for a fresh picture.`));
+      return done();
+    }
+    if (ev.start === start) {
+      push(botText(`*${ev.title}* is already at ${clockShort(start)}.`, { card: dayPicture(next, ev.date, ev.title), buttons: [B.today, B.week] }));
+      return done();
+    }
+    const moved: UserRecord = { ...next, events: next.events.map((e) => (e.id === ev.id ? { ...e, start } : e)) };
+    const plan = buildDayPlan(moved, ev.date);
+    next.draft = { type: "edit", missing: [], edit: { kind: "event", id: ev.id, title: ev.title, summary: `*${ev.title}* moved to ${span(start, ev.durationMinutes)}`, eventPatch: { start } } };
+    push(
+      botText(`move *${ev.title}* to ${span(start, ev.durationMinutes)}? ${freeLine(plan, moved)}`, {
+        card: dayImage(plan, moved, cap(dayWordFor(ev.date, tz)), ev.title),
+        buttons: [btn("apply", "Yes, move it", "make the change"), btn("leave", "Leave it", "leave it"), B.today],
+        calendarEventId: ev.id,
+      }),
+    );
     return done();
   }
   if (/^notifications (on|off)$/.test(lower)) {
