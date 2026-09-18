@@ -187,11 +187,48 @@ function extractJson(text: string): unknown {
   try {
     return JSON.parse(cleaned);
   } catch {
-    const start = cleaned.indexOf("{");
-    const end = cleaned.lastIndexOf("}");
-    if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
-    throw new Error("no json in reply");
+    /* fall through */
   }
+  // Prose around it, or several objects: take each balanced {...} block, first one that parses wins.
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        try {
+          return JSON.parse(cleaned.slice(start, i + 1));
+        } catch {
+          start = -1;
+        }
+      }
+    }
+  }
+  throw new Error(`no json in reply: ${cleaned.slice(0, 200)}`);
+}
+
+/** The assistant text out of a chat completion, whichever shape the provider used. */
+function contentText(message: { content?: unknown; reasoning_content?: unknown } | undefined): string {
+  const c = message?.content;
+  if (typeof c === "string" && c.trim()) return c;
+  if (Array.isArray(c)) {
+    const joined = c.map((part) => (typeof part === "string" ? part : typeof (part as { text?: unknown })?.text === "string" ? (part as { text: string }).text : "")).join("\n");
+    if (joined.trim()) return joined;
+  }
+  return typeof message?.reasoning_content === "string" ? message.reasoning_content : "";
 }
 
 /** Names change and retire; prefer an open Gemma, then a Flash-Lite, then any Flash that supports generateContent. */
@@ -283,9 +320,12 @@ async function callStructured<S extends z.ZodObject>(schema: S, defaults: z.infe
       console.warn("[buffer] model call failed", p.label, model, res.status, (await res.text()).slice(0, 300));
       return null;
     }
-    const data = (await res.json()) as { choices?: Array<{ message?: { content?: string | null } }> };
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) return null;
+    const data = (await res.json()) as { choices?: Array<{ message?: { content?: unknown; reasoning_content?: unknown } }> };
+    const content = contentText(data.choices?.[0]?.message);
+    if (!content) {
+      console.warn("[buffer] empty model reply", p.label, model, JSON.stringify(data).slice(0, 300));
+      return null;
+    }
     const loose = schema.partial().safeParse(extractJson(content));
     if (!loose.success) {
       console.warn("[buffer] model reply did not match the schema", p.label, loose.error.issues.slice(0, 3));
