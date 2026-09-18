@@ -183,7 +183,11 @@ function getAnthropic(): Anthropic {
 
 /** Pull the first JSON object out of a model reply that may have fences or chatter around it. */
 function extractJson(text: string): unknown {
-  const cleaned = text.replace(/```(?:json)?/gi, "").trim();
+  const cleaned = text
+    .replace(/<(thought|think|thinking|reasoning)>[\s\S]*?<\/\1>/gi, "")
+    .replace(/<(thought|think|thinking|reasoning)>[\s\S]*$/gi, "")
+    .replace(/```(?:json)?/gi, "")
+    .trim();
   try {
     return JSON.parse(cleaned);
   } catch {
@@ -284,19 +288,22 @@ async function callStructured<S extends z.ZodObject>(schema: S, defaults: z.infe
       return (response.parsed_output as z.infer<S> | null) ?? null;
     }
     const jsonSchema = JSON.stringify(z.toJSONSchema(schema));
-    const instructions = `${system}\n\nAnswer with one JSON object only, no prose and no code fences, matching this JSON schema (use null for anything not given):\n${jsonSchema}`;
-    const send = async (model: string) => {
+    const instructions = `${system}\n\nAnswer with one JSON object only, no prose, no thinking out loud and no code fences, matching this JSON schema (use null for anything not given):\n${jsonSchema}`;
+    const google = /generativelanguage\.googleapis\.com/.test(p.baseUrl);
+    const send = async (model: string, noThinking: boolean) => {
       const gemma = /gemma/i.test(model);
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 25_000);
+      const timer = setTimeout(() => controller.abort(), 40_000);
       return fetch(`${p.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(p.apiKey ? { Authorization: `Bearer ${p.apiKey}` } : {}) },
         body: JSON.stringify({
           model,
           temperature: 0.2,
-          max_tokens: maxTokens,
+          // Thinking models spend tokens before the answer; leave room so the JSON is not cut off.
+          max_tokens: Math.max(maxTokens, 4000),
           ...(p.jsonMode && !gemma ? { response_format: { type: "json_object" } } : {}),
+          ...(google && noThinking ? { extra_body: { google: { thinking_config: { thinking_budget: 0 } } } } : {}),
           // Gemma has no system role; everything goes in the one user turn.
           messages: gemma
             ? [{ role: "user", content: `${instructions}\n\n---\n\n${user}` }]
@@ -309,12 +316,17 @@ async function callStructured<S extends z.ZodObject>(schema: S, defaults: z.infe
       }).finally(() => clearTimeout(timer));
     };
     let model = p.discover === "google" && p.apiKey ? await pickGoogleModel(p.apiKey) : p.model;
-    let res = await send(model);
+    let res = await send(model, true);
+    if (res.status === 400 && google) {
+      // This model does not take a thinking budget; ask again without it.
+      res = await send(model, false);
+    }
     if (res.status === 404 && p.discover === "google" && p.apiKey) {
       // The model list moved under us: forget the cached pick and choose again once.
       googleModel = undefined;
       model = await pickGoogleModel(p.apiKey);
-      res = await send(model);
+      res = await send(model, true);
+      if (res.status === 400) res = await send(model, false);
     }
     if (!res.ok) {
       console.warn("[buffer] model call failed", p.label, model, res.status, (await res.text()).slice(0, 300));
