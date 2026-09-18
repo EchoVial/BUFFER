@@ -134,7 +134,7 @@ export type SetupUnderstanding = z.infer<typeof SetupSchema>;
 
 type Provider =
   | { kind: "anthropic"; model: string; label: string }
-  | { kind: "openai"; baseUrl: string; apiKey?: string; model: string; label: string; jsonMode: boolean };
+  | { kind: "openai"; baseUrl: string; apiKey?: string; model: string; label: string; jsonMode: boolean; discover?: "google" };
 
 let provider: Provider | null | undefined;
 
@@ -148,7 +148,8 @@ export function resolveProvider(): Provider | null {
   } else if (env.GROQ_API_KEY) {
     provider = { kind: "openai", baseUrl: "https://api.groq.com/openai/v1", apiKey: env.GROQ_API_KEY, model: model || "llama-3.3-70b-versatile", label: `groq ${model || "llama-3.3-70b-versatile"}`, jsonMode: true };
   } else if (env.GEMINI_API_KEY || env.GOOGLE_API_KEY) {
-    provider = { kind: "openai", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", apiKey: env.GEMINI_API_KEY || env.GOOGLE_API_KEY, model: model || "gemma-3-27b-it", label: `google ${model || "gemma-3-27b-it"}`, jsonMode: !/gemma/i.test(model || "gemma-3-27b-it") };
+    // No model pinned: ask Google which models this key can use and pick the best open/cheap one (see pickGoogleModel).
+    provider = { kind: "openai", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", apiKey: env.GEMINI_API_KEY || env.GOOGLE_API_KEY, model: model || "", label: `google ${model || "(auto)"}`, jsonMode: !/gemma/i.test(model || ""), discover: model ? undefined : "google" };
   } else if (env.OPENROUTER_API_KEY) {
     provider = { kind: "openai", baseUrl: "https://openrouter.ai/api/v1", apiKey: env.OPENROUTER_API_KEY, model: model || "google/gemma-3-27b-it:free", label: `openrouter ${model || "google/gemma-3-27b-it:free"}`, jsonMode: false };
   } else if (env.OLLAMA_HOST || env.OLLAMA_MODEL) {
@@ -166,9 +167,12 @@ export function llmAvailable(): boolean {
   return resolveProvider() !== null;
 }
 
-/** "groq llama-3.3-70b-versatile", "ollama gemma3", "rules" */
+/** "groq llama-3.3-70b-versatile", "google gemma-3-27b-it", "rules" */
 export function modelLabel(): string {
-  return resolveProvider()?.label ?? "rules";
+  const p = resolveProvider();
+  if (!p) return "rules";
+  if (p.kind === "openai" && p.discover === "google") return `google ${googleModel ?? "(auto)"}`;
+  return p.label;
 }
 
 let anthropicClient: Anthropic | undefined;
@@ -188,6 +192,37 @@ function extractJson(text: string): unknown {
     if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
     throw new Error("no json in reply");
   }
+}
+
+/** Names change and retire; prefer an open Gemma, then a Flash-Lite, then any Flash that supports generateContent. */
+const GOOGLE_PREFERENCE = [/^gemma-4/, /^gemma-3n/, /^gemma-3/, /^gemma/, /^gemini-[\d.]+-flash-lite(?!.*preview)/, /^gemini-[\d.]+-flash(?!.*(preview|live|image|tts|audio|native))/, /^gemini-[\d.]+-flash-lite/, /^gemini-[\d.]+-flash/, /^gemini/];
+let googleModel: string | undefined;
+
+async function pickGoogleModel(apiKey: string): Promise<string> {
+  if (googleModel) return googleModel;
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${encodeURIComponent(apiKey)}`);
+    if (res.ok) {
+      const data = (await res.json()) as { models?: Array<{ name: string; supportedGenerationMethods?: string[] }> };
+      const usable = (data.models ?? [])
+        .filter((m) => (m.supportedGenerationMethods ?? []).includes("generateContent"))
+        .map((m) => m.name.replace(/^models\//, ""));
+      for (const re of GOOGLE_PREFERENCE) {
+        const hit = usable.find((n) => re.test(n));
+        if (hit) {
+          googleModel = hit;
+          console.info("[buffer] google model", hit);
+          return hit;
+        }
+      }
+    } else {
+      console.warn("[buffer] could not list google models", res.status);
+    }
+  } catch (err) {
+    console.warn("[buffer] could not list google models", err instanceof Error ? err.message : err);
+  }
+  googleModel = "gemini-2.5-flash";
+  return googleModel;
 }
 
 /**
@@ -213,28 +248,39 @@ async function callStructured<S extends z.ZodObject>(schema: S, defaults: z.infe
     }
     const jsonSchema = JSON.stringify(z.toJSONSchema(schema));
     const instructions = `${system}\n\nAnswer with one JSON object only, no prose and no code fences, matching this JSON schema (use null for anything not given):\n${jsonSchema}`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 25_000);
-    const res = await fetch(`${p.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(p.apiKey ? { Authorization: `Bearer ${p.apiKey}` } : {}) },
-      body: JSON.stringify({
-        model: p.model,
-        temperature: 0.2,
-        max_tokens: maxTokens,
-        ...(p.jsonMode ? { response_format: { type: "json_object" } } : {}),
-        // Gemma has no system role; everything goes in the one user turn.
-        messages: /gemma/i.test(p.model)
-          ? [{ role: "user", content: `${instructions}\n\n---\n\n${user}` }]
-          : [
-              { role: "system", content: instructions },
-              { role: "user", content: user },
-            ],
-      }),
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timer));
+    const send = async (model: string) => {
+      const gemma = /gemma/i.test(model);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 25_000);
+      return fetch(`${p.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(p.apiKey ? { Authorization: `Bearer ${p.apiKey}` } : {}) },
+        body: JSON.stringify({
+          model,
+          temperature: 0.2,
+          max_tokens: maxTokens,
+          ...(p.jsonMode && !gemma ? { response_format: { type: "json_object" } } : {}),
+          // Gemma has no system role; everything goes in the one user turn.
+          messages: gemma
+            ? [{ role: "user", content: `${instructions}\n\n---\n\n${user}` }]
+            : [
+                { role: "system", content: instructions },
+                { role: "user", content: user },
+              ],
+        }),
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timer));
+    };
+    let model = p.discover === "google" && p.apiKey ? await pickGoogleModel(p.apiKey) : p.model;
+    let res = await send(model);
+    if (res.status === 404 && p.discover === "google" && p.apiKey) {
+      // The model list moved under us: forget the cached pick and choose again once.
+      googleModel = undefined;
+      model = await pickGoogleModel(p.apiKey);
+      res = await send(model);
+    }
     if (!res.ok) {
-      console.warn("[buffer] model call failed", p.label, res.status, (await res.text()).slice(0, 300));
+      console.warn("[buffer] model call failed", p.label, model, res.status, (await res.text()).slice(0, 300));
       return null;
     }
     const data = (await res.json()) as { choices?: Array<{ message?: { content?: string | null } }> };
