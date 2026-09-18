@@ -138,6 +138,7 @@ function helpText(): string {
     "5. *reserve friday evening* blocks it so nothing else lands there.",
     "",
     "change or finish things in plain words: *move gym to 8pm*, *done with the deck*, *undo*.",
+    "*add to gcal* puts the last thing i saved into google calendar (you tap Save there).",
   ].join("\n");
 }
 
@@ -172,6 +173,7 @@ const TIPS: Record<string, string> = {
   save: "(tap *Undo* to remove it, or *Push 30 min later* to move it.)",
   todo: "(a to-do has no fixed time. i slot it into a free gap and show it on your day.)",
   picture: "(tap the picture to see it big.)",
+  calendar: "(google won't let me write into your calendar without you signing in there, so the button opens google calendar with it filled in and you tap Save. *Connect live feed* subscribes google to everything i save, but google only refreshes feeds every few hours.)",
 };
 
 function tip(next: UserRecord, id: keyof typeof TIPS): string {
@@ -286,17 +288,10 @@ function findTodo(user: UserRecord, hint: string): TodoItem | undefined {
 }
 
 function calendarButtons(connected: boolean): ReplyButton[] {
-  if (connected) {
-    return [
-      { id: "gcal", title: "Google Calendar", action: "google-cal" },
-      { id: "outlook", title: "Outlook", action: "outlook-cal" },
-      { id: "ics", title: "Download .ics", action: "ics" },
-    ];
-  }
   return [
-    { id: "connect", title: "Connect calendar", action: "connect-feed" },
-    { id: "gcal", title: "Google (this event)", action: "google-cal" },
-    { id: "outlook", title: "Outlook (this event)", action: "outlook-cal" },
+    { id: "gcal", title: "Add to Google Cal", action: "google-cal" },
+    { id: "ics", title: "Download .ics file", action: "ics" },
+    connected ? { id: "outlook", title: "Add to Outlook", action: "outlook-cal" } : { id: "connect", title: "Connect live feed", action: "connect-feed" },
   ];
 }
 
@@ -842,6 +837,21 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     if (p.wakeTime) bits.push(`up at ${clockShort(p.wakeTime)}`);
     if (p.sleepTime) bits.push(`asleep by ${clockShort(p.sleepTime)}`);
     push(botText(bits.length ? `got it: ${bits.join(", ")}.` : "ok, noted.", { card: p.workStart ? dayPicture(next, todayISO) : undefined, buttons: [B.week, B.today] }));
+  } else if (parsed.intent === "calendar") {
+    // A mis-read "add it to gcal" may have opened a junk draft; drop it.
+    if (next.draft.type === "event" && (!next.draft.event?.start || /gcal|calendar/i.test(next.draft.event?.title ?? ""))) next.draft = { type: "none", missing: [] };
+    const ev = next.events.find((e) => e.id === next.lastLockedEventId) || [...next.events].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""))[0];
+    const connected = Boolean(next.calendarConnectedAt);
+    if (!ev) {
+      push(botText("nothing saved yet to add. mark something first, like *work 7 to 10pm today*, then say *add to gcal*.", { buttons: [B.addWork, B.ideas, { id: "connect", title: "Connect live feed", action: "connect-feed" }] }));
+    } else {
+      push(
+        botText(`*${ev.title}* · ${dayWordFor(ev.date, tz)} ${span(ev.start, ev.durationMinutes)}.\ntap *Add to Google Cal*, then Save in the tab that opens.${tip(next, "calendar")}`, {
+          buttons: calendarButtons(connected),
+          calendarEventId: ev.id,
+        }),
+      );
+    }
   } else if (next.draft.type === "edit" && parsed.intent === "confirm" && next.draft.edit) {
     const edit = next.draft.edit;
     if (edit.kind === "event") {
@@ -872,7 +882,7 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     const via = parsed.normalized.match(/\bconnected (?:my )?(google|apple|outlook|copy|snapshot)\b/)?.[1] || "your";
     next.calendarConnectedAt = now;
     next.calendarConnectedVia = via;
-    push(botText(`connected. *${connectedLabel(via)}* now follows your Buffer feed. anything you add here shows up there within about 15 minutes.`));
+    push(botText(`connected. *${connectedLabel(via)}* now follows your Buffer feed. calendar apps refresh subscribed feeds on their own schedule, usually every few hours, so for something right now use *Add to Google Cal* on that event.`));
   } else if (next.draft.type === "event" && parsed.intent === "cancel") {
     next.draft = { type: "none", missing: [] };
     push(botText("dropped it."));
@@ -1089,21 +1099,6 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
         note = `i assumed ${durationLabel(ev.durationMinutes)}, say *make it 2h* if not`;
       }
       placeEvent(next, finalizeEvent(ev), replies, note);
-    }
-  } else if (parsed.intent === "calendar") {
-    const ev = next.events.find((e) => e.id === next.lastLockedEventId) || next.events[next.events.length - 1];
-    const connected = Boolean(next.calendarConnectedAt);
-    if (!ev) {
-      push(
-        botText(connected ? "nothing on the calendar yet. add something first." : "tap *Connect calendar* and everything you add here shows up in Google, Apple or Outlook.", connected ? undefined : { buttons: [{ id: "connect", title: "Connect calendar", action: "connect-feed" }] }),
-      );
-    } else {
-      push(
-        botText(
-          connected ? `*${ev.title}* · ${prettyDate(ev.date)} ${clockShort(ev.start)}\n\nyour calendar is already connected. add just this one somewhere else, or download it.` : `*${ev.title}* · ${prettyDate(ev.date)} ${clockShort(ev.start)}\n\ntap *Connect calendar* for everything, or add just this one.`,
-          { buttons: calendarButtons(connected), calendarEventId: ev.id },
-        ),
-      );
     }
   } else if (parsed.intent === "help") {
     push(botText(helpText(), { buttons: [B.week, B.today, B.addWork] }));

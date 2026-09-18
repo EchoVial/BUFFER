@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createUser, getAppSettings, getUserById, getUserByName, upsertUser } from "@/lib/store";
+import { createUser, getAppSettings, getUserById, getUserByName, persistBackend, upsertUser } from "@/lib/store";
 import { beginChat } from "@/lib/bot";
 import { extractName } from "@/lib/names";
 
@@ -10,14 +10,14 @@ const COOKIE = "balance_user";
 export async function GET(req: NextRequest) {
   const settings = await getAppSettings();
   const id = req.cookies.get(COOKIE)?.value;
-  if (!id) return NextResponse.json({ user: null, settings });
+  if (!id) return NextResponse.json({ user: null, settings, storage: persistBackend() });
   const user = await getUserById(id);
   if (!user) {
     const res = NextResponse.json({ user: null, settings });
     res.cookies.set(COOKIE, "", { path: "/", maxAge: 0 });
     return res;
   }
-  return NextResponse.json({ user, settings });
+  return NextResponse.json({ user, settings, storage: persistBackend() });
 }
 
 export async function POST(req: NextRequest) {
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     });
   }
   user = await upsertUser(user);
-  const res = NextResponse.json({ user, settings });
+  const res = NextResponse.json({ user, settings, storage: persistBackend() });
   res.cookies.set(COOKIE, user.id, {
     httpOnly: false,
     sameSite: "lax",

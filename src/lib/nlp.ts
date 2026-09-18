@@ -611,7 +611,7 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
   ) {
     intent = "add_todo";
   } else if (
-    /\b(add to calendar|google calendar|apple calendar|android calendar|outlook calendar|connect calendar|subscribe calendar|sync calendar|put it on my calendar|export to calendar)\b/.test(
+    /\b(add to calendar|google calendar|apple calendar|android calendar|outlook calendar|connect calendar|subscribe calendar|sync calendar|put it on my calendar|export to calendar|gcal|g-cal|google cal|to (?:my )?calendar|on (?:my )?calendar|in (?:my )?calendar|sync (?:it |this |that )?(?:to|with) google|send (?:it |this |that )?to (?:my )?(?:google|calendar)|live feed)\b/.test(
       normalized,
     )
   ) {

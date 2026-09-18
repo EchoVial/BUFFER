@@ -23,11 +23,14 @@ export function CalendarConnect({
   origin,
   compact,
   onConnected,
+  storage,
 }: {
   user: UserRecord;
   origin: string;
   compact?: boolean;
   onConnected?: (via: "google" | "apple" | "outlook" | "copy" | "snapshot") => void;
+  /** "kv" | "file" | "memory": where the server keeps users; a memory server forgets the feed on restart. */
+  storage?: string;
 }) {
   const token = user.calendarToken;
   const platform = useMemo(
@@ -117,9 +120,17 @@ export function CalendarConnect({
           Connect {name} calendar
         </p>
         <p className="mt-1 text-[13px] leading-5 text-(--wa-muted)">
-          Browsers can’t silently write into Google, Apple, or Android calendars. Subscribe to your
-          live Buffer feed instead — locked events and open to-dos refresh about every 15 minutes.
+          Browsers can&apos;t silently write into Google, Apple, or Android calendars. Subscribe to your
+          live Buffer feed instead. Calendar apps refresh subscribed feeds on their own schedule, usually
+          every few hours, so for one event right now use the Add to Google Cal button in the chat.
         </p>
+        {storage === "memory" ? (
+          <p className="mt-2 rounded-md bg-(--wa-bar) px-3 py-2 text-[12px] leading-5 text-(--wa-muted)">
+            This deployment has no database yet, so the live feed goes blank whenever the server restarts.
+            Per-event Add to Google Cal always works. To make the feed reliable, add a Redis store in
+            Vercel (Storage tab, Upstash, free) and redeploy.
+          </p>
+        ) : null}
       </div>
 
       {"href" in primary ? (

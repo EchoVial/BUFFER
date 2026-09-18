@@ -42,6 +42,7 @@ type Tab = "chats" | "status" | "calls";
 
 export function WhatsAppApp() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [storage, setStorage] = useState<string | undefined>(undefined);
   const [user, setUser] = useState<UserRecord | null>(null);
   const [awaitingName, setAwaitingName] = useState(true);
   const [bootMsgs, setBootMsgs] = useState<ChatMessage[]>([]);
@@ -92,6 +93,7 @@ export function WhatsAppApp() {
         const res = await fetch("/api/session");
         const data = await res.json();
         setSettings(data.settings);
+        setStorage(data.storage);
         if (data.user) {
           let u = data.user as UserRecord;
           if (cached) {
@@ -864,6 +866,7 @@ export function WhatsAppApp() {
             {user ? (
               <CalendarConnect
                 user={user}
+                storage={storage}
                 origin={typeof window === "undefined" ? "" : window.location.origin}
                 onConnected={(via) => {
                   setCalOpen(false);
