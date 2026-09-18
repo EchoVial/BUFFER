@@ -242,7 +242,7 @@ export function weekImage(view: WeekView, user: UserRecord): ImageCard {
     type: "image",
     variant: "week",
     title: "Your next 7 days",
-    subtitle: freeSummary(view),
+    subtitle: view.totalWork ? "green is free, grey is work" : "nothing marked as work yet",
     days: view.days.map((d) => {
       const biggest = [...d.windows].sort((a, b) => b.endMin - b.startMin - (a.endMin - a.startMin))[0];
       return {
@@ -255,6 +255,31 @@ export function weekImage(view: WeekView, user: UserRecord): ImageCard {
       };
     }),
   };
+}
+
+/**
+ * One plain sentence about the open time on a day, no hour counts:
+ * "you're free until 7 pm", "you're free from 10 pm", "the biggest open stretch is 2 to 6 pm".
+ */
+export function freeLine(plan: DayPlan, user: UserRecord): string {
+  const now = nowInZone(user.settings.timezone);
+  const isToday = dateISO(now) === plan.date;
+  const sleep = hmToMinutes(user.settings.sleepTime || "23:00");
+  const free = plan.blocks.filter((b) => b.kind === "free" && b.endMin - b.startMin >= 30);
+  const clock = (m: number) => shortClock(minutesToHM(m % (24 * 60)));
+  if (isToday) {
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const cur = free.find((b) => b.startMin <= nowMin && b.endMin > nowMin + 15);
+    if (cur) return cur.endMin >= sleep - 15 ? "you're free for the rest of the day." : `you're free until ${clock(cur.endMin)}.`;
+    const nxt = free.find((b) => b.startMin > nowMin);
+    if (nxt) return nxt.endMin >= sleep - 15 ? `you're free from ${clock(nxt.startMin)}.` : `you're free ${clock(nxt.startMin)} to ${clock(nxt.endMin)}.`;
+    return "the rest of today is full.";
+  }
+  if (!free.length) return "the day is full.";
+  const busy = plan.blocks.some((b) => b.kind !== "free" && b.kind !== "sleep");
+  if (!busy) return "the day is open.";
+  const big = [...free].sort((a, b) => b.endMin - b.startMin - (a.endMin - a.startMin))[0];
+  return `the biggest open stretch is ${clock(big.startMin)} to ${clock(big.endMin)}.`;
 }
 
 /** Free minutes still ahead today (or the whole day's free time for another date). */

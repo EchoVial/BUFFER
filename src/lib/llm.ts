@@ -6,9 +6,10 @@ import { dateISO, nowInZone } from "./time";
 
 /**
  * Buffer's understanding layer. One structured call to Claude turns a messy
- * WhatsApp text into a typed action; the scheduler still does all the calendar
- * arithmetic deterministically. Without ANTHROPIC_API_KEY (or any other
- * Anthropic credential the SDK resolves) this module returns null and the
+ * WhatsApp text into a typed action plus, when the person goes off script,
+ * the words to say back; the scheduler still does all the calendar arithmetic
+ * deterministically. Without ANTHROPIC_API_KEY (or any other Anthropic
+ * credential the SDK resolves) every function here returns null and the
  * regex parser in nlp.ts takes over.
  */
 
@@ -31,6 +32,7 @@ export const INTENTS = [
   "overlaps",
   "status",
   "chitchat",
+  "question",
   "calendar",
   "calendar_connected",
   "star",
@@ -47,20 +49,24 @@ const KINDS = ["work", "social", "personal", "health", "other"] as const;
 export const UnderstandingSchema = z.object({
   intent: z.enum(INTENTS),
   confidence: z.number().min(0).max(1),
-  reply_hint: z
-    .string()
-    .describe(
-      "One short, warm sentence Buffer could say back, WhatsApp style, lowercase ok, no em dashes, no emoji spam. Used for chitchat and clarifications.",
-    ),
-  question: z
+  reply: z
     .string()
     .nullable()
-    .describe("For intent=clarify only: the one question to ask. Otherwise null."),
+    .describe(
+      "The full message Buffer sends back, for intent = chitchat, question, greet, unknown or clarify (for clarify the question itself goes here). One to three short sentences in Buffer's voice. Null for actions (add_event, add_todo, protect, set_pref, schedule, week...): Buffer writes those itself.",
+    ),
+  lead: z
+    .string()
+    .nullable()
+    .describe(
+      "For actions only: an optional opening clause (max 12 words) that shows Buffer heard the detail or the mood in the message, e.g. 'roommates too, noted.' or 'long day. ok:'. Null when the message was plain.",
+    ),
+  question: z.string().nullable().describe("For intent=clarify only: the one question to ask (same text as reply). Otherwise null."),
   options: z
     .array(z.object({ title: z.string().max(20), payload: z.string() }))
     .max(3)
     .nullable()
-    .describe("For clarify: up to 3 quick-reply buttons; payload is the full text to send back as if the user typed it."),
+    .describe("For clarify: up to 3 quick-reply buttons (2-3 plain words); payload is the full text to send back as if the user typed it."),
   title: z.string().nullable().describe("Clean event/to-do title in Title case, without the time words. Null if none."),
   kind: z.enum(KINDS).nullable().describe("work = job/study; social = people; health = body; personal = rest, chores, hobbies, alone time."),
   date: z.string().nullable().describe("YYYY-MM-DD in the user's timezone, resolved from words like tomorrow / thu / next week. Null if not given."),
@@ -84,6 +90,13 @@ export const UnderstandingSchema = z.object({
     })
     .nullable()
     .describe("Only for set_pref: the settings the user stated. HH:MM for times."),
+  people: z
+    .array(z.string())
+    .max(4)
+    .nullable()
+    .describe(
+      "People the user wants to stay in touch with, whenever they say so in any intent ('remind me to spend time with my roommates too', 'i want to call my mom more'). Short names in Title case: 'Mom', 'Roommates'. Null if none.",
+    ),
   memory_notes: z
     .array(z.string())
     .max(3)
@@ -91,6 +104,22 @@ export const UnderstandingSchema = z.object({
     .describe("Durable facts worth remembering about the person (e.g. 'gym is usually 7pm', 'friend: Sam'). Null if nothing new."),
 });
 export type Understanding = z.infer<typeof UnderstandingSchema>;
+
+/** Answers to the three setup questions, in whatever order and wording they come. */
+export const SetupSchema = z.object({
+  work_start: z.string().nullable().describe("HH:MM usual work start, if the person gave standing hours."),
+  work_end: z.string().nullable().describe("HH:MM usual work end."),
+  work_varies: z.boolean().nullable().describe("True if they said their hours change day to day / no fixed hours / student / freelance."),
+  unwind: z.string().nullable().describe("HH:MM when they usually switch off from work in the evening, if given."),
+  people: z.array(z.string()).max(4).nullable().describe("Who they want to be nudged to call or spend time with: short names in Title case ('Mom', 'Dad', 'Roommates', 'Sam'). Null if none given."),
+  skip: z.boolean().describe("True if they declined to answer the current question (skip, no one, not now)."),
+  reply: z
+    .string()
+    .describe(
+      "One or two short sentences in Buffer's voice acknowledging exactly what they said, including anything extra they asked for (e.g. 'mom, and time with your roommates. got it.'). No question here; Buffer asks the next one. If they asked something unrelated, answer it briefly here too.",
+    ),
+});
+export type SetupUnderstanding = z.infer<typeof SetupSchema>;
 
 let client: Anthropic | null | undefined;
 function getClient(): Anthropic | null {
@@ -107,11 +136,26 @@ export function llmAvailable(): boolean {
   return getClient() !== null;
 }
 
+const VOICE = `Buffer's voice: warm, brief, lowercase like a text from a friend, plain words, no em dashes, no emoji, no exclamation marks. Never corporate. It can be a little dry and funny. It never lectures about work-life balance; it just makes room for people.`;
+
+const FEATURES = `What Buffer can do (answer questions about itself from this, never invent features):
+- You tell it when you work ("work 7 to 10pm today", "shift 9 to 5 tomorrow", "i usually work 9 to 6"); it marks it on your calendar and knows when you are actually free.
+- "my week" / "today" / "tomorrow" send a picture: the week as bars (green free, grey work), a day as a strip plus the blocks.
+- Plans with a time ("dinner with sam friday 8pm") and to-dos without one ("remind me to renew my passport"). Everything saves immediately; "undo", "push 30 min later", "make it 2h", "move gym to 8pm", "done with the deck" change things.
+- "reserve friday evening" puts a block called "Reserved for you" on the calendar so nothing else gets planned there.
+- Once a day, in the 90 minutes after your switch-off time, if nothing is on, it nudges you to call one of your people ("nudge me to call mum" adds someone; "who do i call" lists them).
+- "connect calendar" gives a private feed for Google, Apple, Android and Outlook; everything Buffer saves shows up there within about 15 minutes.
+- It does not read your existing calendar yet, does not send messages to other people, and has no voice or photo input yet.`;
+
 const SYSTEM = `You are the understanding layer of Buffer, a WhatsApp assistant for students and young professionals.
 
 Buffer's purpose: the user tells it when they work; it shows them when they are actually free and nudges them to spend some of that time with the people they love (a call home, a friend). It also keeps their calendar and to-dos honest. It is warm, brief and never nags.
 
-You receive one message plus context (date/time in the user's timezone, their settings, upcoming events, open to-dos, remembered facts, recent chat, and any half-finished draft). Return a single structured action.
+${VOICE}
+
+${FEATURES}
+
+You receive one message plus context (date/time in the user's timezone, their settings, upcoming events, open to-dos, remembered facts, their people, recent chat, and any half-finished draft). Return a single structured action.
 
 Intent guide:
 - add_event: a block with a time ("gym tmrw 7pm", "dinner w sam fri", "call mum sunday"). Social = with people. If the user is mid-draft (draft present) and sends just a time or a length, still use add_event and fill only the new slot.
@@ -121,23 +165,27 @@ Intent guide:
 - complete_todo: they finished something ("done with the deck").
 - edit_item: change an existing item ("move gym to 8", "make dinner 2h", "rename ...").
 - star / unstar: prioritise or unprioritise a named item.
-- schedule: today's or a given day's rundown ("what's today", "rundown", "how does friday look").
+- schedule: today's or a given day's rundown ("what's today", "rundown", "how does friday look", or just "today" / "tomorrow").
 - week: the week ahead / free time this week ("how's my week", "when am i free", "free time this week").
 - free_time: same as week when they ask specifically when they are free (a day or the week).
 - plan_free: they want ideas for their free time or ask what to do with it ("what should i do this weekend", "i have a free evening", "suggest something").
-- protect: hold time for themselves or people ("keep thursday evening free", "block sunday for me", "protect my evenings"). Fill date/start/duration if given; kind = social or personal.
+- protect: reserve time for themselves or people ("keep thursday evening free", "reserve sunday for me", "protect my evenings"). Fill date/start/duration if given; kind = social or personal.
 - set_pref: standing rules about their days ("i usually work 9 to 6", "2 hours for people daily", "no work after 8", "i wind down at 8"). "i wind down / unwind / switch off at 8pm" = prefs.protectEveningsAfter and noWorkAfter = "20:00".
-- todos: list to-dos. overlaps: clashes. status: "how am i doing", burnout talk. calendar: connect/add to calendar. options: asks for the menu. help: how does this work.
-- confirm: yes / lock it / go ahead / make the change. cancel: no / scrap it / never mind / leave it.
-- chitchat: thanks, jokes, feelings with no action. greet: hi/hello with nothing else.
+- todos: list to-dos. overlaps: clashes. status: "how am i doing", burnout talk. calendar: connect/add to calendar. options: asks for the menu. help: "how does this work" with no specific question.
+- question: they ask something Buffer can answer in words: about Buffer ("what can you do", "do you sync with google", "what does reserve mean", "why did you do that"), about their own schedule from the context ("when did i say i work", "how many to-dos do i have", "who do you nudge me about"), or anything else where a short honest answer is the right response. Put the answer in reply. Be honest about limits (see the feature list).
+- confirm: yes / save it / go ahead / make the change. cancel: no / scrap it / never mind / leave it.
+- chitchat: thanks, jokes, feelings, venting with no action. Reply like a friend would, briefly, and only offer something if it fits ("rough day. want me to reserve tomorrow evening?"). greet: hi/hello with nothing else; reply with one line and what they could say.
 - clarify: genuinely ambiguous (which item? which day?) and a single question would settle it. Prefer a sensible default over a question when the risk is low.
+- unknown: only when nothing above fits; reply should say plainly what Buffer understood and offer the two or three likely readings.
 
 Rules:
 - Resolve relative dates and times against the provided "now". "tonight" = today evening (19:00 unless given). "this weekend" = the coming Saturday. Weekday names mean the next occurrence (today if still ahead).
 - Never invent a time that was not said or strongly implied; leave start null so Buffer asks.
 - Titles: strip time words and filler ("i want to", "can you"), keep names ("Dinner with Sam").
 - kind: meetings, deck, assignment, study, interview, standup = work. friends, family, dates, dinner with a person, party = social. gym, run, yoga, doctor = health. reading, nap, chores, groceries, alone time, walk = personal.
-- reply_hint: plain, kind, short. No em dashes. It is a fallback voice line, not the whole answer.`;
+- people: fill whenever they mention wanting to keep up with someone, even inside another intent. Buffer will confirm it in its reply.
+- lead: for actions, one short clause only when the message carried a detail or mood worth acknowledging; otherwise null. Never repeat what Buffer's own confirmation will say (the time, the title).
+- reply: write it for chitchat, question, greet, unknown, clarify. Use the context: their name, their people, what is on their calendar. Never claim Buffer did something it did not do.`;
 
 function compactEvents(user: UserRecord, todayISO: string): string {
   const upcoming = user.events
@@ -152,40 +200,44 @@ function compactTodos(user: UserRecord): string {
   if (!open.length) return "none";
   return open.map((t) => `${t.priority}${t.starred ? " ★" : ""} ${t.estimatedMinutes}m${t.dueDate ? ` due ${t.dueDate}` : ""} · ${t.title}`).join("\n");
 }
-function recentChat(user: UserRecord): string {
+function recentChat(user: UserRecord, n = 8): string {
   return user.messages
-    .slice(-8)
+    .slice(-n)
     .map((m) => `${m.role === "user" ? "user" : "buffer"}: ${m.text.replace(/\s+/g, " ").slice(0, 240)}`)
     .join("\n");
 }
 
-export async function understandWithClaude(raw: string, user: UserRecord): Promise<Understanding | null> {
-  const anthropic = getClient();
-  if (!anthropic) return null;
+function contextFor(user: UserRecord): string {
   const tz = user.settings.timezone || "UTC";
   const now = nowInZone(tz);
   const todayISO = dateISO(now);
   const weekday = now.toLocaleDateString("en-US", { weekday: "long" });
   const clock = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   const draft = user.draft.type === "none" ? "none" : JSON.stringify({ type: user.draft.type, event: user.draft.event, todo: user.draft.todo, missing: user.draft.missing });
-
-  const context = [
+  const standing = user.settings.workStart === user.settings.workEnd ? "varies day to day" : `${user.settings.workStart}-${user.settings.workEnd}`;
+  return [
     `now: ${todayISO} (${weekday}) ${clock} in ${tz}`,
     `user: ${user.name}`,
-    `settings: wake ${user.settings.wakeTime}, sleep ${user.settings.sleepTime}, work ${user.settings.workStart}-${user.settings.workEnd}, no work after ${user.settings.noWorkAfter ?? "none"}, evenings protected after ${user.settings.protectEveningsAfter}, social target ${user.settings.socialMinutesPerDay}m/day, work cap ${user.settings.maxWorkMinutesPerDay}m/day`,
+    `settings: wake ${user.settings.wakeTime}, sleep ${user.settings.sleepTime}, usual work ${standing}, switches off at ${user.settings.protectEveningsAfter}, no work after ${user.settings.noWorkAfter ?? "none"}, social target ${user.settings.socialMinutesPerDay}m/day, work cap ${user.settings.maxWorkMinutesPerDay}m/day`,
+    `people they want to keep up with: ${user.people?.length ? user.people.join(", ") : "none yet"}`,
+    `calendar connected: ${user.calendarConnectedAt ? "yes" : "no"}`,
     `remembered: ${user.notes?.trim() || "nothing yet"}`,
     `upcoming events:\n${compactEvents(user, todayISO)}`,
     `open to-dos:\n${compactTodos(user)}`,
     `draft in progress: ${draft}`,
     `recent chat:\n${recentChat(user) || "none"}`,
   ].join("\n\n");
+}
 
+export async function understandWithClaude(raw: string, user: UserRecord): Promise<Understanding | null> {
+  const anthropic = getClient();
+  if (!anthropic) return null;
   try {
     const response = await anthropic.messages.parse({
       model: "claude-opus-5",
       max_tokens: 2000,
       system: SYSTEM,
-      messages: [{ role: "user", content: `${context}\n\nmessage: """${raw}"""` }],
+      messages: [{ role: "user", content: `${contextFor(user)}\n\nmessage: """${raw}"""` }],
       output_config: { effort: "low", format: zodOutputFormat(UnderstandingSchema) },
     });
     // A safety refusal or a truncated answer: let the regex parser handle the turn.
@@ -193,6 +245,37 @@ export async function understandWithClaude(raw: string, user: UserRecord): Promi
     return response.parsed_output ?? null;
   } catch (err) {
     console.warn("[buffer] claude understanding failed", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+const SETUP_SYSTEM = `You read answers to Buffer's three setup questions and return them as fields.
+
+${VOICE}
+
+${FEATURES}
+
+The questions, in order: (1) when do you usually work, (2) when do you usually switch off from work in the evening, (3) who should Buffer nudge you to call when you are free. You are told which question was just asked. People answer loosely: "9 to 6 mostly", "depends, i'm a student", "around 8", "my mom, and remind me to spend some time with my roommates too", "skip". Fill every field the answer gives, including answers to questions not yet asked ("9 to 6 and i'm done by 7" fills work and unwind). A lone clock time after question 1 is not a work range; after question 2 it is the unwind time. For question 3, people can be roles ("Mom", "Roommates", "my sister" -> "Sister") or names. "Spend time with X" counts as a person to nudge about. If the answer asks something unrelated, answer it in reply in one sentence and still fill what you can. reply never asks the next question.`;
+
+export async function understandSetupWithClaude(step: "work" | "unwind" | "people", raw: string, user: UserRecord): Promise<SetupUnderstanding | null> {
+  const anthropic = getClient();
+  if (!anthropic) return null;
+  const asked = step === "work" ? "(1) when do you usually work?" : step === "unwind" ? "(2) when do you usually switch off from work for the day?" : "(3) who should i nudge you to call when you're free?";
+  const tz = user.settings.timezone || "UTC";
+  const standing = user.settings.workStart === user.settings.workEnd ? "varies" : `${user.settings.workStart}-${user.settings.workEnd}`;
+  const known = `already answered: work ${step === "work" ? "not yet" : standing}; switch-off ${step === "people" ? user.settings.protectEveningsAfter : "not yet"}; people ${user.people?.length ? user.people.join(", ") : "not yet"}`;
+  try {
+    const response = await anthropic.messages.parse({
+      model: "claude-opus-5",
+      max_tokens: 800,
+      system: SETUP_SYSTEM,
+      messages: [{ role: "user", content: `user: ${user.name}\ntimezone: ${tz}\n${known}\nquestion just asked: ${asked}\n\nrecent chat:\n${recentChat(user, 6)}\n\nanswer: """${raw}"""` }],
+      output_config: { effort: "low", format: zodOutputFormat(SetupSchema) },
+    });
+    if (response.stop_reason === "refusal" || response.stop_reason === "max_tokens") return null;
+    return response.parsed_output ?? null;
+  } catch (err) {
+    console.warn("[buffer] claude setup failed", err instanceof Error ? err.message : err);
     return null;
   }
 }

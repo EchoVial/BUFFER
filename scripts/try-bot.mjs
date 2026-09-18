@@ -2,6 +2,14 @@
 //   npx tsx scripts/try-bot.mjs "how's my week" "keep thursday evening free" ...
 // With ANTHROPIC_API_KEY set the Claude layer is used; otherwise the rule parser.
 const { processTurn, welcomeIfEmpty } = await import("../src/lib/bot.ts");
+const { setUnderstandingEngine } = await import("../src/lib/understand.ts");
+// BUFFER_FAKE_LLM=path.json: a map of message -> Understanding (and "setup:<step>:<message>" -> SetupUnderstanding)
+// to exercise the Claude branches without a key.
+if (process.env.BUFFER_FAKE_LLM) {
+  const { readFileSync } = await import("node:fs");
+  const fixtures = JSON.parse(readFileSync(process.env.BUFFER_FAKE_LLM, "utf8"));
+  setUnderstandingEngine(async (raw) => fixtures[raw] ?? null, async (step, raw) => fixtures[`setup:${step}:${raw}`] ?? null);
+}
 const { DEFAULT_USER_SETTINGS } = await import("../src/lib/types.ts");
 
 const tz = "Asia/Kolkata";

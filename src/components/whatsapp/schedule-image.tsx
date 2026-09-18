@@ -28,12 +28,6 @@ const kindColor = (k: string) =>
   k === "work" ? WORK : k === "social" ? SOCIAL : k === "health" ? HEALTH : k === "personal" ? PERSONAL : k === "todo" ? TODO : k === "free" ? FREE : OTHER;
 const kindWord = (k: string) => (k === "work" ? "work" : k === "social" ? "people" : k === "health" ? "health" : k === "personal" ? "you" : k === "todo" ? "to-do" : "");
 
-function hours(min: number): string {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  if (!h) return `${m}m`;
-  return m ? `${h}h ${m}m` : `${h}h`;
-}
 const clock = (min: number) => {
   const h24 = Math.floor(min / 60) % 24;
   const m = min % 60;
@@ -70,14 +64,14 @@ function Frame({ h, title, subtitle, children }: { h: number; title: string; sub
   );
 }
 
-const WEEK_H = 270;
+const WEEK_H = 236;
 
-/** Seven columns: free (green) stacked on work (grey), free hours on each. */
+/** Seven columns: free (green) stacked on work (grey). No numbers; the shape is the point. */
 function WeekSvg({ card }: { card: Extract<ImageCard, { variant: "week" }> }) {
   const days = card.days;
   const left = 20;
   const top = 92;
-  const bottom = WEEK_H - 56;
+  const bottom = WEEK_H - 44;
   const colW = (W - left * 2) / days.length;
   const maxMin = Math.max(6 * 60, ...days.map((d) => d.freeMinutes + d.workMinutes));
   const scale = (bottom - top) / maxMin;
@@ -101,35 +95,15 @@ function WeekSvg({ card }: { card: Extract<ImageCard, { variant: "week" }> }) {
         const freeH = d.freeMinutes * scale;
         const yWork = bottom - workH;
         const yFree = yWork - freeH;
-        const label = d.freeMinutes ? hours(d.freeMinutes) : "";
         return (
           <g key={d.date}>
             {workH > 0 && <rect x={x} y={yWork} width={bw} height={Math.max(2, workH)} fill={WORK} opacity="0.9" rx="3" />}
             {freeH > 0 && <rect x={x} y={yFree} width={bw} height={Math.max(2, freeH)} fill={FREE} rx="3" />}
-            {label &&
-              (freeH >= 20 ? (
-                <text x={x + bw / 2} y={yFree + 14} textAnchor="middle" fill="#052e16" fontSize="11" fontWeight="700" fontFamily={FONT}>
-                  {label}
-                </text>
-              ) : (
-                <text x={x + bw / 2} y={yFree - 5} textAnchor="middle" fill={FREE} fontSize="11" fontWeight="700" fontFamily={FONT}>
-                  {label}
-                </text>
-              ))}
-            {!d.freeMinutes && !d.workMinutes && (
-              <text x={x + bw / 2} y={bottom - 6} textAnchor="middle" fill={MUTED} fontSize="10" fontFamily={FONT}>
-                open
-              </text>
-            )}
+            {!d.freeMinutes && !d.workMinutes && <rect x={x} y={bottom - 3} width={bw} height="3" fill="#ffffff" fillOpacity="0.15" rx="1.5" />}
             <text x={x + bw / 2} y={bottom + 18} textAnchor="middle" fill={d.today ? FREE : INK} fontSize="12.5" fontWeight={d.today ? 700 : 500} fontFamily={FONT}>
               {d.label}
             </text>
             {d.today && <circle cx={x + bw / 2} cy={bottom + 28} r="2" fill={FREE} />}
-            {d.best && (
-              <text x={x + bw / 2} y={bottom + 42} textAnchor="middle" fill={MUTED} fontSize="9.5" fontFamily={FONT}>
-                {d.best.replace(/ to /, "–")}
-              </text>
-            )}
           </g>
         );
       })}

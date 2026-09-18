@@ -10,11 +10,12 @@ import {
   UserRecord,
 } from "./types";
 import { uid } from "./ids";
-import { understand } from "./understand";
+import { understand, understandSetup } from "./understand";
 import { parseRange, type ParsedMessage } from "./nlp";
-import { dayImage, describeWindow, freeAhead, freeSummary, hours, protectPayload, protectedEvent, slotName, standingWork, suggestForFreeTime, suggestionPayload, weekImage, weekView, windowLabel } from "./life";
+import type { SetupUnderstanding } from "./llm";
+import { dayImage, describeWindow, freeLine, protectPayload, protectedEvent, slotName, standingWork, suggestForFreeTime, suggestionPayload, weekImage, weekView, windowLabel } from "./life";
 import { findNamedItem } from "./match";
-import { buildDayPlan, plainStats, proposeEvent } from "./scheduler";
+import { buildDayPlan, proposeEvent } from "./scheduler";
 import {
   dateISO,
   durationLabel,
@@ -190,14 +191,18 @@ function dayWordFor(iso: string, tz: string): string {
   return prettyDate(iso);
 }
 
+/** "Roommates", "friends", "family": people you spend time with rather than ring. */
+const isGroup = (name: string) => /^(roommates?|flatmates?|housemates?|friends|family|cousins|parents|siblings|the boys|the girls|the gang|team|mates)$/i.test(name.trim());
+
 /** Names from "mum, dad", "nani and rohan", "my sister & ayaan". */
 export function parsePeople(text: string): string[] {
   const t = text
     .toLowerCase()
-    .replace(/\b(nudge|remind|prompt)\s+me\s+to\s+call\b/g, " ")
-    .replace(/\b(when i'?m free|when i am free|please|call|to call|my|the|also|maybe|and my)\b/g, " ");
+    .replace(/\b(nudge|remind|prompt)\s+me\s+to\s+(call|ring|text|see|visit)\b/g, " ")
+    .replace(/\b(remind me to|spend (?:some |more )?time with|hang out with|catch up with|keep up with|check in on|check on|talk to|see more of|too|as well|sometimes|more often|once a week|every week)\b/g, " ")
+    .replace(/\b(when i'?m free|when i am free|please|call|to call|my|the|also|maybe|and my|and|with)\b/g, " ");
   return t
-    .split(/,|\band\b|&|\n|\+|\//)
+    .split(/,|&|\n|\+|\/|\s{2,}/)
     .map((s) => s.replace(/[^a-z' ]/g, "").replace(/\s+/g, " ").trim())
     .filter((s) => s && s.length <= 20 && !/^(skip|no one|noone|nobody|none|later|nah|no|not now|nope)$/.test(s))
     .slice(0, 4)
@@ -327,13 +332,10 @@ function commitEvent(next: UserRecord, ev: CalendarEvent, lead?: string, note?: 
   next.lastLockedEventId = ev.id;
   next.draft = { type: "none", missing: [] };
   const plan = buildDayPlan(next, ev.date);
-  const free = freeAhead(plan, next);
   const tz = next.settings.timezone;
   const when = dayWordFor(ev.date, tz);
-  const thatDay = when.includes(",") ? "that day" : when;
   const what = ev.kind === "work" ? "marked" : ev.kind === "social" ? "on the calendar" : "added";
-  const left = when === "today" ? "left today" : thatDay;
-  const rest = free >= 60 ? ` that leaves about ${hours(free)} free ${left}.` : free > 0 ? ` ${thatDay} is nearly full after that.` : ` that fills ${thatDay}.`;
+  const rest = ` ${freeLine(plan, next)}`;
   const text = `${lead ?? `${what}. *${ev.title}* ${when}, ${span(ev.start, ev.durationMinutes)}${note ? ` (${note})` : ""}.`}${rest}${tip(next, "save")}`;
   return botText(text, {
     card: dayPicture(next, ev.date, ev.title),
@@ -436,14 +438,15 @@ function finishSetup(next: UserRecord): ChatMessage[] {
   const people = next.people ?? [];
   const who = people.length ? people.slice(0, 2).join(" or ") : "someone you love";
   const after = clockShort(next.settings.protectEveningsAfter || "19:00");
+  const verb = people.length && people.slice(0, 2).some(isGroup) ? "about" : "to call";
   const view = weekView(next);
   const out: ChatMessage[] = [
     botText(
-      `that's the setup. when you're free after ${after}, i'll send one small nudge to call ${who}. never more than once a day.\n\nfrom here, just text me:\n• *work 7 to 10pm today* to mark work hours\n• *my week* or *today* for a picture\n• *dinner with sam friday 8pm* for a plan, *remind me to call nani* for a to-do`,
+      `that's the setup. when you're free after ${after}, i'll send one small nudge ${verb} ${who}. never more than once a day.\n\nfrom here, just text me:\n• *work 7 to 10pm today* to mark work hours\n• *my week* or *today* for a picture\n• *dinner with sam friday 8pm* for a plan, *remind me to call nani* for a to-do`,
     ),
     botText(
       view.totalWork
-        ? `here's your week so far: about *${freeSummary(view)}*.${tip(next, "picture")}`
+        ? `here's your week so far. green is free, grey is work.${tip(next, "picture")}`
         : `here's your week so far. nothing is marked as work yet, so it all looks open. add your work and this gets real.${tip(next, "picture")}`,
       {
         card: weekImage(view, next),
@@ -454,11 +457,53 @@ function finishSetup(next: UserRecord): ChatMessage[] {
   return out;
 }
 
+/** Apply whatever a setup answer gave, then ask the next unanswered question. */
+function applySetup(next: UserRecord, a: SetupUnderstanding): ChatMessage[] {
+  const step = next.onboarding;
+  const gotWork = Boolean((a.work_start && a.work_end) || a.work_varies);
+  if (a.work_start && a.work_end) next.settings = { ...next.settings, workStart: a.work_start, workEnd: a.work_end };
+  else if (a.work_varies) next.settings = { ...next.settings, workStart: "00:00", workEnd: "00:00" };
+  if (a.unwind) next.settings = { ...next.settings, protectEveningsAfter: a.unwind, noWorkAfter: a.unwind };
+  if (a.people?.length) {
+    const have = new Set((next.people ?? []).map((n) => n.toLowerCase()));
+    next.people = [...(next.people ?? []), ...a.people.map(cap).filter((n) => !have.has(n.toLowerCase()))].slice(0, 6);
+  }
+  const answered = {
+    work: gotWork || step !== "work",
+    unwind: Boolean(a.unwind) || step === "people",
+    people: Boolean(a.people?.length) || (step === "people" && a.skip),
+  };
+  // Skipping the current question counts as answered.
+  if (a.skip) {
+    if (step === "work") {
+      next.settings = { ...next.settings, workStart: "00:00", workEnd: "00:00" };
+      answered.work = true;
+    } else if (step === "unwind") answered.unwind = true;
+  }
+  const out: ChatMessage[] = [botText(a.reply)];
+  if (!answered.work) {
+    next.onboarding = "work";
+    out.push(workQuestion());
+  } else if (!answered.unwind) {
+    next.onboarding = "unwind";
+    out.push(unwindQuestion(next));
+  } else if (!answered.people) {
+    next.onboarding = "people";
+    out.push(peopleQuestion());
+  } else {
+    out.push(...finishSetup(next));
+  }
+  return out;
+}
+
 /** The setup questions, one at a time. Returns replies, or null when the text is not for setup. */
-function handleOnboarding(next: UserRecord, text: string): ChatMessage[] | null {
+async function handleOnboarding(next: UserRecord, text: string): Promise<ChatMessage[] | null> {
   const step = next.onboarding;
   const t = text.toLowerCase().trim();
   if (!step || step === "done") return null;
+  // Claude reads the answer when a key is set: loose wording, several answers at once, side questions.
+  const smart = await understandSetup(step, text, next);
+  if (smart) return applySetup(next, smart);
   // Let them escape the questions with the things they might type anyway.
   if (/^(skip all|skip setup|later|not now)$/.test(t)) {
     next.onboarding = "done";
@@ -533,13 +578,12 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     replies.push(...(Array.isArray(m) ? m : [m]));
   };
   const done = () => {
-    // Three buttons under every reply: the ones the branch chose, then the most useful defaults.
+    // Three buttons under the reply (the last bubble): the ones the branch chose, then the most useful defaults.
     const settingUp = Boolean(next.onboarding && next.onboarding !== "done");
-    for (let i = 0; i < replies.length; i++) {
-      const m = replies[i];
-      if (m.list || settingUp) continue;
+    const i = replies.length - 1;
+    const m = replies[i];
+    if (m && !m.list && !settingUp && (m.buttons?.length ?? 0) < 3) {
       const have = m.buttons ?? [];
-      if (have.length >= 3) continue;
       const seen = new Set(have.map((b) => b.payload ?? b.action));
       const extra = DEFAULT_BUTTONS.filter((b) => !seen.has(b.payload)).slice(0, 3 - have.length);
       replies[i] = { ...m, buttons: [...have, ...extra] };
@@ -552,7 +596,7 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
   const lower = text.trim().toLowerCase();
 
   // --- first run: the three setup questions
-  const onboard = handleOnboarding(next, text);
+  const onboard = await handleOnboarding(next, text);
   if (onboard) {
     push(onboard);
     return done();
@@ -652,10 +696,11 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     const who = cap(callingNow[1]);
     const n = nowInZone(tz);
     const start = minutesToHM(Math.floor((n.getHours() * 60 + n.getMinutes()) / 5) * 5);
-    const ev = finalizeEvent({ title: `Call ${who}`, kind: "social", date: todayISO, start, durationMinutes: 20 });
+    const title = isGroup(who) ? `Time with ${who.toLowerCase()}` : `Call ${who}`;
+    const ev = finalizeEvent({ title, kind: "social", date: todayISO, start, durationMinutes: isGroup(who) ? 45 : 20 });
     next.events = [...next.events, ev];
     next.lastLockedEventId = ev.id;
-    push(botText(`go on then. say hi from me.\n\ni've put *Call ${who}* on today so it counts.`, { buttons: [B.today, B.undo, B.week] }));
+    push(botText(`${isGroup(who) ? "go on then, enjoy it." : "go on then. say hi from me."}\n\ni've put *${title}* on today so it counts.`, { buttons: [B.today, B.undo, B.week] }));
     return done();
   }
   if (/^skip the call today$/.test(lower)) {
@@ -667,6 +712,10 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
   const parsed = await understand(text, user);
   next.lastNlp = parsed.debug;
   next.notes = rememberNotes(user.notes, parsed.memoryNotes);
+  // Someone mentioned in passing ("...and remind me to spend time with my roommates too") joins the nudge list.
+  const newPeople = (parsed.people ?? []).map(cap).filter((n) => !(next.people ?? []).some((p) => p.toLowerCase() === n.toLowerCase()));
+  if (newPeople.length) next.people = [...(next.people ?? []), ...newPeople].slice(0, 6);
+  const peopleLine = newPeople.length ? `\ni'll nudge you about ${newPeople.join(" and ")} too.` : "";
   const hasSlots = Boolean(parsed.event.date || parsed.event.start || parsed.event.durationMinutes || parsed.event.kind);
 
   if (parsed.intent === "options") {
@@ -682,10 +731,10 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     const lead = !view.totalWork
       ? "nothing is marked as work yet, so the week looks wide open. tell me your work and this gets real: *work 9 to 5 tomorrow*."
       : view.totalFree
-        ? `this week you have about *${freeSummary(view)}*, around ${hours(view.totalWork)} of work.`
+        ? "here's your week. green is free, grey is work."
         : "the next 7 days are full edge to edge. that's the first thing to fix.";
-    const best = view.best.length ? `\nbiggest gaps: ${view.best.slice(0, 3).map(windowLabel).join(" · ")}.` : "";
-    const nudge = view.best.length ? "\nwant me to reserve one of those for you?" : "";
+    const best = view.best.length && view.totalWork ? `\nyour biggest open stretch is ${windowLabel(view.best[0])}.` : "";
+    const nudge = view.best.length && view.totalWork ? " want me to reserve it for you?" : "";
     const buttons = view.best.slice(0, 2).map((w, i) => btn(`keep-${i}`, `Reserve ${slotName(w)}`, protectPayload(w, tz, "me")));
     push(
       botText(`${lead}${best}${nudge}${view.best.length ? tip(next, "keep") : ""}${tip(next, "picture")}`, {
@@ -915,9 +964,7 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
       push(botText(`nothing on ${label} yet. tell me what's on, like *work 9 to 5* or *dinner with sam at 8*.`, { card: dayPicture(next, date), buttons: [B.addWork, B.week] }));
     } else {
       const warn = plan.overlaps.length ? `\n${plan.warnings.filter((w) => w.startsWith("Overlap")).slice(0, 1).join("")}` : "";
-      const stats = isToday ? { ...plan.stats, freeMinutes: freeAhead(plan, next) } : plan.stats;
-      const line = isToday ? plainStats(stats).replace(/(\S+) free$/, "$1 free left") : plainStats(stats);
-      push(botText(`${label}: ${line}.${warn}${tip(next, "picture")}`, { card: dayPicture(next, date), buttons: [B.week, B.addWork, B.ideas] }));
+      push(botText(`here's ${label}. ${freeLine(plan, next)}${warn}${tip(next, "picture")}`, { card: dayPicture(next, date), buttons: [B.week, B.addWork, B.ideas] }));
     }
   } else if (parsed.intent === "overlaps") {
     const date = parsed.event.date || todayISO;
@@ -996,17 +1043,26 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     push(botText(helpText(), { buttons: [B.week, B.today, B.addWork] }));
   } else if (parsed.intent === "status") {
     const plan = buildDayPlan(next, todayISO);
-    push(botText(`${peopleNote(plan.stats, "status")} today: ${plainStats(plan.stats)}.`, { card: dayPicture(next, todayISO), buttons: [B.week, B.ideas] }));
-  } else if (parsed.intent === "chitchat") {
-    push(botText(parsed.replyHint || "anytime."));
+    push(botText(`${peopleNote(plan.stats, "status")} ${freeLine(plan, next)}`, { card: dayPicture(next, todayISO), buttons: [B.week, B.ideas] }));
+  } else if (parsed.intent === "chitchat" || parsed.intent === "question") {
+    push(botText(parsed.reply || (parsed.intent === "question" ? helpText() : "anytime.")));
   } else if (parsed.intent === "greet") {
-    push(botText("hey. *my week*, *today*, or tell me what's on.", { buttons: [B.week, B.today, B.addWork] }));
+    push(botText(parsed.reply || "hey. *my week*, *today*, or tell me what's on.", { buttons: [B.week, B.today, B.addWork] }));
+  } else if (parsed.reply) {
+    push(botText(parsed.reply, { buttons: [B.help, B.today, B.week] }));
   } else {
     push(
-      botText(parsed.replyHint ? `${parsed.replyHint}\nshould i treat *${parsed.event.title}* as:` : `not sure i got that. is *${parsed.event.title}* a plan with a time, or a to-do?`, {
+      botText(`not sure i got that. is *${parsed.event.title}* a plan with a time, or a to-do?`, {
         buttons: [btn("as-event", "A plan with a time", `plan ${parsed.event.title}`), btn("as-todo", "A to-do, no time", `remind me to ${parsed.event.title}`), B.help],
       }),
     );
+  }
+
+  // A tailored opening line and any people picked up along the way, on the first reply.
+  if (replies.length) {
+    const first = replies[0];
+    const lead = parsed.lead && parsed.intent !== "chitchat" && parsed.intent !== "question" && parsed.intent !== "greet" && parsed.intent !== "unknown" && parsed.intent !== "clarify" ? `${parsed.lead.replace(/\s+$/, "")} ` : "";
+    replies[0] = { ...first, text: `${lead}${first.text}${peopleLine}` };
   }
 
   return done();
@@ -1090,7 +1146,7 @@ export function dailyDigest(user: UserRecord): { message?: ChatMessage; patch?: 
   const view = weekView(user);
   const best = view.best[0];
   const text = best
-    ? `morning. this week you have about *${freeSummary(view)}*. the biggest gap is ${windowLabel(best)}. want me to reserve it for you?`
+    ? `morning. your biggest open stretch this week is ${windowLabel(best)}. want me to reserve it for you?`
     : "morning. the next 7 days are wall to wall. say *reserve an evening* and i'll carve one out.";
   return {
     message: botText(text, {
@@ -1122,12 +1178,15 @@ export function unwindNudge(user: UserRecord): { message?: ChatMessage; patch?: 
   const people = user.people ?? [];
   const idx = (user.nudgeIndex ?? 0) % Math.max(1, people.length);
   const who = people[idx];
+  const group = Boolean(who && isGroup(who));
   const text = who
-    ? `you're off the clock. ${who} would love to hear from you. even ten minutes counts.`
+    ? group
+      ? `you're off the clock. some time with your ${who.toLowerCase()} would be a good use of it. even half an hour.`
+      : `you're off the clock. ${who} would love to hear from you. even ten minutes counts.`
     : "you're off the clock. a ten-minute call to someone you love counts more than it feels like it does.";
   const buttons = who
     ? [
-        btn("now", `Calling ${who} now`.length <= 20 ? `Calling ${who} now` : `Call ${who} now`, `calling ${who.toLowerCase()} now`),
+        group ? btn("now", "Doing it now", `calling ${who.toLowerCase()} now`) : btn("now", `Calling ${who} now`.length <= 20 ? `Calling ${who} now` : `Call ${who} now`, `calling ${who.toLowerCase()} now`),
         btn("later", "Remind me tonight", `remind me to call ${who.toLowerCase()} later tonight`),
         btn("skip", "Skip today", "skip the call today"),
       ]

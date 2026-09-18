@@ -15,6 +15,12 @@ Three questions, with tap-to-answer buttons: when do you usually work (`9 to 5`,
 
 Every reply ends in three buttons, worded as what they do (See my week, Mark work hours, Push 30 min later). Each feature is explained once, in a bracketed line, the first time it appears. `help` shows the whole thing in five lines; `set up again` reruns the questions.
 
+## What it runs on
+
+Next.js on Vercel. The brain is Claude (`claude-opus-5`, structured outputs) when `ANTHROPIC_API_KEY` is set in the Vercel project's environment variables. Without the key the app falls back to a regex parser, which handles the button payloads and the standard phrasings but nothing off script. The key is set in Vercel: Project > Settings > Environment Variables > `ANTHROPIC_API_KEY`, then redeploy.
+
+With the key, Claude also reads the three setup answers (loose wording, several answers at once, side questions), writes the reply itself for chitchat, questions about Buffer or your schedule, greetings and anything it could not map to an action, adds a short opening clause to action replies when the message carried a mood or a detail, and picks up people mentioned in passing ("...and remind me to spend some time with my roommates too") into the nudge list.
+
 ## How it understands you
 
 `src/lib/understand.ts` sends each message, with the user's timezone, settings, upcoming events, open to-dos, remembered facts and the last few messages, to Claude (`src/lib/llm.ts`, structured output) and gets back one typed action: intent, title, date, time, length, kind, or a single clarifying question with quick-reply buttons. The scheduler (`src/lib/scheduler.ts`, `src/lib/life.ts`) then does the calendar arithmetic deterministically. Set `ANTHROPIC_API_KEY`; without it the regex parser in `src/lib/nlp.ts` takes over, so the demo never breaks. Setup answers, button payloads and one-word commands (`undo`, `today`) are handled before either parser runs.

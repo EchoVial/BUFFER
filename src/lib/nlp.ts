@@ -16,6 +16,7 @@ export type Intent =
   | "overlaps"
   | "status"
   | "chitchat"
+  | "question"
   | "calendar"
   | "calendar_connected"
   | "options"
@@ -61,8 +62,12 @@ export interface ParsedMessage {
   /** From the Claude layer: one clarifying question and quick replies. */
   question?: string;
   options?: Array<{ title: string; payload: string }>;
-  /** From the Claude layer: a short natural line to use for chitchat / fallbacks. */
-  replyHint?: string;
+  /** From the Claude layer: the whole reply, for chitchat / questions / greetings / fallbacks. */
+  reply?: string;
+  /** From the Claude layer: a short opening clause for action replies ("roommates too, noted."). */
+  lead?: string;
+  /** From the Claude layer: people the user wants to keep up with, mentioned in passing. */
+  people?: string[];
   /** From the Claude layer: durable facts to remember. */
   memoryNotes?: string[];
   notes: string[];
