@@ -238,6 +238,11 @@ function contentText(message: { content?: unknown; reasoning_content?: unknown }
 /** Names change and retire. Flash-Lite first (fast, free tier, no thinking), then Flash, then an open Gemma (Gemma 4 thinks out loud and takes 20s+). */
 const GOOGLE_PREFERENCE = [/^gemini-[\d.]+-flash-lite$/, /^gemini-[\d.]+-flash$/, /^gemini-[\d.]+-flash-lite(?!.*(live|image|tts|audio|native))/, /^gemini-[\d.]+-flash(?!.*(live|image|tts|audio|native))/, /^gemma-4/, /^gemma-3n/, /^gemma/, /^gemini/];
 let googleModel: string | undefined;
+/** Models the API listed but then refused (retired for new users, etc.). */
+const badGoogleModels = new Set<string>();
+
+/** "gemini-3.5-flash-lite" -> 3.5, so newer generations sort first. */
+const generation = (name: string) => Number(name.match(/-(\d+(?:\.\d+)?)/)?.[1] ?? 0);
 
 async function pickGoogleModel(apiKey: string): Promise<string> {
   if (googleModel) return googleModel;
@@ -247,7 +252,10 @@ async function pickGoogleModel(apiKey: string): Promise<string> {
       const data = (await res.json()) as { models?: Array<{ name: string; supportedGenerationMethods?: string[] }> };
       const usable = (data.models ?? [])
         .filter((m) => (m.supportedGenerationMethods ?? []).includes("generateContent"))
-        .map((m) => m.name.replace(/^models\//, ""));
+        .map((m) => m.name.replace(/^models\//, ""))
+        .filter((n) => !badGoogleModels.has(n))
+        // Newest generation first; among equals, a stable name before a preview.
+        .sort((a, b) => generation(b) - generation(a) || Number(/preview|exp/.test(a)) - Number(/preview|exp/.test(b)));
       for (const re of GOOGLE_PREFERENCE) {
         const hit = usable.find((n) => re.test(n));
         if (hit) {
@@ -262,7 +270,7 @@ async function pickGoogleModel(apiKey: string): Promise<string> {
   } catch (err) {
     console.warn("[buffer] could not list google models", err instanceof Error ? err.message : err);
   }
-  googleModel = "gemini-2.5-flash";
+  googleModel = "gemini-3.5-flash-lite";
   return googleModel;
 }
 
@@ -322,8 +330,9 @@ async function callStructured<S extends z.ZodObject>(schema: S, defaults: z.infe
       // This model does not take a thinking budget; ask again without it.
       res = await send(model, false);
     }
-    if (res.status === 404 && p.discover === "google" && p.apiKey) {
-      // The model list moved under us: forget the cached pick and choose again once.
+    for (let attempt = 0; res.status === 404 && p.discover === "google" && p.apiKey && attempt < 3; attempt++) {
+      // Listed but refused (retired for new users): remember that and pick the next one.
+      badGoogleModels.add(model);
       googleModel = undefined;
       model = await pickGoogleModel(p.apiKey);
       res = await send(model, true);
