@@ -212,6 +212,7 @@ async function callStructured<S extends z.ZodObject>(schema: S, defaults: z.infe
       return (response.parsed_output as z.infer<S> | null) ?? null;
     }
     const jsonSchema = JSON.stringify(z.toJSONSchema(schema));
+    const instructions = `${system}\n\nAnswer with one JSON object only, no prose and no code fences, matching this JSON schema (use null for anything not given):\n${jsonSchema}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 25_000);
     const res = await fetch(`${p.baseUrl}/chat/completions`, {
@@ -222,10 +223,13 @@ async function callStructured<S extends z.ZodObject>(schema: S, defaults: z.infe
         temperature: 0.2,
         max_tokens: maxTokens,
         ...(p.jsonMode ? { response_format: { type: "json_object" } } : {}),
-        messages: [
-          { role: "system", content: `${system}\n\nAnswer with one JSON object only, no prose and no code fences, matching this JSON schema (use null for anything not given):\n${jsonSchema}` },
-          { role: "user", content: user },
-        ],
+        // Gemma has no system role; everything goes in the one user turn.
+        messages: /gemma/i.test(p.model)
+          ? [{ role: "user", content: `${instructions}\n\n---\n\n${user}` }]
+          : [
+              { role: "system", content: instructions },
+              { role: "user", content: user },
+            ],
       }),
       signal: controller.signal,
     }).finally(() => clearTimeout(timer));
