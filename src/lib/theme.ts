@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 /**
  * Appearance, kept in the browser. `data-theme` picks the WhatsApp palette
@@ -28,16 +28,26 @@ export interface Appearance {
 
 const DEFAULT: Appearance = { mode: "dark", wall: "default" };
 
+// Cached by the raw string so useSyncExternalStore gets a stable snapshot.
+let lastRaw: string | null = null;
+let lastValue: Appearance = DEFAULT;
+
 export function readAppearance(): Appearance {
   if (typeof window === "undefined") return DEFAULT;
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return DEFAULT;
+    if (raw === lastRaw) return lastValue;
+    lastRaw = raw;
+    if (!raw) {
+      lastValue = DEFAULT;
+      return lastValue;
+    }
     const parsed = JSON.parse(raw) as Partial<Appearance>;
-    return {
+    lastValue = {
       mode: parsed.mode === "light" || parsed.mode === "system" ? parsed.mode : "dark",
       wall: WALLPAPERS.some((w) => w.id === parsed.wall) ? (parsed.wall as Wallpaper) : "default",
     };
+    return lastValue;
   } catch {
     return DEFAULT;
   }
@@ -46,6 +56,11 @@ export function readAppearance(): Appearance {
 export function resolvedMode(mode: ThemeMode): "dark" | "light" {
   if (mode !== "system" || typeof window === "undefined") return mode === "light" ? "light" : "dark";
   return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
+function subscribeAppearance(cb: () => void): () => void {
+  window.addEventListener("storage", cb);
+  return () => window.removeEventListener("storage", cb);
 }
 
 export function applyAppearance(a: Appearance) {
@@ -59,11 +74,13 @@ export function applyAppearance(a: Appearance) {
 }
 
 export function useAppearance(): [Appearance, (patch: Partial<Appearance>) => void] {
-  const [a, setA] = useState<Appearance>(DEFAULT);
+  // The pre-paint script in layout.tsx already applied the saved look; React just
+  // needs to catch up once the client is running (a subscription, not a render-time read).
+  const stored = useSyncExternalStore(subscribeAppearance, readAppearance, () => DEFAULT);
+  const [override, setA] = useState<Appearance | null>(null);
+  const a = override ?? stored;
   useEffect(() => {
-    const cur = readAppearance();
-    setA(cur);
-    applyAppearance(cur);
+    applyAppearance(readAppearance());
     const mq = window.matchMedia("(prefers-color-scheme: light)");
     const onChange = () => applyAppearance(readAppearance());
     mq.addEventListener("change", onChange);
@@ -71,7 +88,7 @@ export function useAppearance(): [Appearance, (patch: Partial<Appearance>) => vo
   }, []);
   const update = useCallback((patch: Partial<Appearance>) => {
     setA((prev) => {
-      const next = { ...prev, ...patch };
+      const next = { ...(prev ?? readAppearance()), ...patch };
       localStorage.setItem(KEY, JSON.stringify(next));
       applyAppearance(next);
       return next;

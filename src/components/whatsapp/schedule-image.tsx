@@ -6,24 +6,27 @@ import type { ImageCard } from "@/lib/types";
 
 /**
  * The week and the day as a picture, the way a friend would screenshot their
- * calendar for you. Drawn as SVG so it is crisp at any size; "Save" rasterises
- * it to PNG in the browser.
+ * calendar for you. Drawn as SVG at phone-bubble size (400 wide) so the text
+ * stays readable inside the chat; "Save" rasterises it to PNG in the browser.
  */
-const W = 720;
-const H = 405;
+const W = 400;
 
 const INK = "#e9edef";
-const MUTED = "#8fa3ad";
-const BG_A = "#0e2a26";
+const MUTED = "#98a7b0";
+const BG_A = "#10302b";
 const BG_B = "#0b141a";
 const FREE = "#25d366";
-const WORK = "#7f93a4";
+const WORK = "#64778a";
 const SOCIAL = "#f5b942";
 const HEALTH = "#5ad1c4";
 const PERSONAL = "#c39bf0";
-const TODO = "#f5b942";
+const TODO = "#6fa8ff";
+const OTHER = "#9aa8b3";
+const FONT = "Google Sans, Segoe UI, system-ui, sans-serif";
 
-const kindColor = (k: string) => (k === "work" ? WORK : k === "social" ? SOCIAL : k === "health" ? HEALTH : k === "personal" ? PERSONAL : k === "todo" ? TODO : k === "free" ? FREE : MUTED);
+const kindColor = (k: string) =>
+  k === "work" ? WORK : k === "social" ? SOCIAL : k === "health" ? HEALTH : k === "personal" ? PERSONAL : k === "todo" ? TODO : k === "free" ? FREE : OTHER;
+const kindWord = (k: string) => (k === "work" ? "work" : k === "social" ? "people" : k === "health" ? "health" : k === "personal" ? "you" : k === "todo" ? "to-do" : "");
 
 function hours(min: number): string {
   const h = Math.floor(min / 60);
@@ -37,8 +40,13 @@ const clock = (min: number) => {
   const h = h24 % 12 || 12;
   return `${h}${m ? `:${String(m).padStart(2, "0")}` : ""}${h24 >= 12 ? "pm" : "am"}`;
 };
+const clockRange = (a: number, b: number) => {
+  const sameHalf = Math.floor(a / 60) % 24 >= 12 === Math.floor(b / 60) % 24 >= 12;
+  const left = sameHalf ? clock(a).replace(/am|pm$/, "") : clock(a);
+  return `${left} to ${clock(b)}`;
+};
 
-function Frame({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+function Frame({ h, title, subtitle, children }: { h: number; title: string; subtitle: string; children: React.ReactNode }) {
   return (
     <>
       <defs>
@@ -47,14 +55,14 @@ function Frame({ title, subtitle, children }: { title: string; subtitle: string;
           <stop offset="1" stopColor={BG_B} />
         </linearGradient>
       </defs>
-      <rect width={W} height={H} rx="18" fill="url(#bufbg)" />
-      <text x="28" y="44" fill={INK} fontSize="24" fontWeight="600" fontFamily="Google Sans, system-ui, sans-serif">
+      <rect width={W} height={h} rx="16" fill="url(#bufbg)" />
+      <text x="20" y="34" fill={INK} fontSize="20" fontWeight="600" fontFamily={FONT}>
         {title}
       </text>
-      <text x="28" y="70" fill={MUTED} fontSize="15" fontFamily="Google Sans, system-ui, sans-serif">
+      <text x="20" y="56" fill={MUTED} fontSize="12.5" fontFamily={FONT}>
         {subtitle}
       </text>
-      <text x={W - 28} y="44" textAnchor="end" fill={FREE} fontSize="14" fontWeight="600" fontFamily="Google Sans, system-ui, sans-serif">
+      <text x={W - 20} y="34" textAnchor="end" fill={FREE} fontSize="11.5" fontWeight="700" fontFamily={FONT} letterSpacing="0.4">
         Buffer
       </text>
       {children}
@@ -62,131 +70,179 @@ function Frame({ title, subtitle, children }: { title: string; subtitle: string;
   );
 }
 
-/** Seven columns: free (green) stacked on work (grey), best window under each day. */
+const WEEK_H = 270;
+
+/** Seven columns: free (green) stacked on work (grey), free hours on each. */
 function WeekSvg({ card }: { card: Extract<ImageCard, { variant: "week" }> }) {
   const days = card.days;
-  const left = 28;
-  const top = 96;
-  const bottom = H - 62;
+  const left = 20;
+  const top = 92;
+  const bottom = WEEK_H - 56;
   const colW = (W - left * 2) / days.length;
   const maxMin = Math.max(6 * 60, ...days.map((d) => d.freeMinutes + d.workMinutes));
   const scale = (bottom - top) / maxMin;
   return (
-    <Frame title={card.title} subtitle={card.subtitle}>
-      {[0.25, 0.5, 0.75, 1].map((f) => (
-        <line key={f} x1={left} x2={W - left} y1={bottom - f * (bottom - top)} y2={bottom - f * (bottom - top)} stroke="#ffffff" strokeOpacity="0.07" />
-      ))}
+    <Frame h={WEEK_H} title={card.title} subtitle={card.subtitle}>
+      <g transform={`translate(${W - 20 - 118}, 66)`}>
+        <rect width="9" height="9" rx="2" fill={FREE} y="1" />
+        <text x="14" y="9" fill={MUTED} fontSize="11" fontFamily={FONT}>
+          free
+        </text>
+        <rect width="9" height="9" rx="2" fill={WORK} x="48" y="1" />
+        <text x="62" y="9" fill={MUTED} fontSize="11" fontFamily={FONT}>
+          work
+        </text>
+      </g>
+      <line x1={left} x2={W - left} y1={bottom} y2={bottom} stroke="#ffffff" strokeOpacity="0.12" />
       {days.map((d, i) => {
-        const x = left + i * colW + colW * 0.22;
-        const bw = colW * 0.56;
+        const x = left + i * colW + colW * 0.2;
+        const bw = colW * 0.6;
         const workH = d.workMinutes * scale;
         const freeH = d.freeMinutes * scale;
         const yWork = bottom - workH;
         const yFree = yWork - freeH;
+        const label = d.freeMinutes ? hours(d.freeMinutes) : "";
         return (
           <g key={d.date}>
-            {workH > 0 && <rect x={x} y={yWork} width={bw} height={workH} fill={WORK} opacity="0.85" rx="4" />}
-            {freeH > 0 && <rect x={x} y={yFree} width={bw} height={freeH} fill={FREE} rx="4" />}
-            {freeH > 14 && (
-              <text x={x + bw / 2} y={yFree + 16} textAnchor="middle" fill="#052e16" fontSize="12" fontWeight="700" fontFamily="Google Sans, system-ui, sans-serif">
-                {hours(d.freeMinutes)}
+            {workH > 0 && <rect x={x} y={yWork} width={bw} height={Math.max(2, workH)} fill={WORK} opacity="0.9" rx="3" />}
+            {freeH > 0 && <rect x={x} y={yFree} width={bw} height={Math.max(2, freeH)} fill={FREE} rx="3" />}
+            {label &&
+              (freeH >= 20 ? (
+                <text x={x + bw / 2} y={yFree + 14} textAnchor="middle" fill="#052e16" fontSize="11" fontWeight="700" fontFamily={FONT}>
+                  {label}
+                </text>
+              ) : (
+                <text x={x + bw / 2} y={yFree - 5} textAnchor="middle" fill={FREE} fontSize="11" fontWeight="700" fontFamily={FONT}>
+                  {label}
+                </text>
+              ))}
+            {!d.freeMinutes && !d.workMinutes && (
+              <text x={x + bw / 2} y={bottom - 6} textAnchor="middle" fill={MUTED} fontSize="10" fontFamily={FONT}>
+                open
               </text>
             )}
-            <text x={x + bw / 2} y={bottom + 20} textAnchor="middle" fill={d.today ? FREE : INK} fontSize="14" fontWeight={d.today ? 700 : 500} fontFamily="Google Sans, system-ui, sans-serif">
+            <text x={x + bw / 2} y={bottom + 18} textAnchor="middle" fill={d.today ? FREE : INK} fontSize="12.5" fontWeight={d.today ? 700 : 500} fontFamily={FONT}>
               {d.label}
             </text>
-            <text x={x + bw / 2} y={bottom + 38} textAnchor="middle" fill={MUTED} fontSize="11" fontFamily="Google Sans, system-ui, sans-serif">
-              {d.best ?? "packed"}
-            </text>
+            {d.today && <circle cx={x + bw / 2} cy={bottom + 28} r="2" fill={FREE} />}
+            {d.best && (
+              <text x={x + bw / 2} y={bottom + 42} textAnchor="middle" fill={MUTED} fontSize="9.5" fontFamily={FONT}>
+                {d.best.replace(/ to /, "–")}
+              </text>
+            )}
           </g>
         );
       })}
-      <g transform={`translate(${W - 28 - 170}, 78)`}>
-        <rect width="10" height="10" rx="2" fill={FREE} y="0" />
-        <text x="16" y="9" fill={MUTED} fontSize="12" fontFamily="Google Sans, system-ui, sans-serif">
-          free outside work
-        </text>
-        <rect width="10" height="10" rx="2" fill={WORK} x="122" y="0" opacity="0.85" />
-        <text x="138" y="9" fill={MUTED} fontSize="12" fontFamily="Google Sans, system-ui, sans-serif">
-          work
-        </text>
-      </g>
     </Frame>
   );
 }
 
-/** One day as a horizontal strip from wake to sleep, blocks coloured by kind. */
-function DaySvg({ card }: { card: Extract<ImageCard, { variant: "day" }> }) {
-  const left = 28;
-  const right = W - 28;
+/** One day: a strip from wake to sleep, then the blocks as a short list. */
+function DaySvg({ card, h }: { card: Extract<ImageCard, { variant: "day" }>; h: number }) {
+  const left = 20;
+  const right = W - 20;
   const from = card.fromMin;
   const to = card.toMin;
   const x = (min: number) => left + ((Math.min(Math.max(min, from), to) - from) / (to - from)) * (right - left);
-  const laneY = 128;
-  const laneH = 92;
+  const laneY = 72;
+  const laneH = 40;
   const ticks: number[] = [];
-  for (let m = Math.ceil(from / 120) * 120; m <= to; m += 120) ticks.push(m);
+  for (let m = Math.ceil(from / 180) * 180; m <= to; m += 180) ticks.push(m);
+  const blocks = card.blocks.filter((b) => b.endMin > from && b.startMin < to && b.kind !== "free" && b.kind !== "sleep").sort((a, b) => a.startMin - b.startMin);
+  const rows = blocks.slice(0, 6);
+  const rowY = laneY + laneH + 46;
   return (
-    <Frame title={card.title} subtitle={card.subtitle}>
-      <rect x={left} y={laneY} width={right - left} height={laneH} rx="10" fill="#ffffff" fillOpacity="0.05" />
+    <Frame h={h} title={card.title} subtitle={card.subtitle}>
+      <rect x={left} y={laneY} width={right - left} height={laneH} rx="8" fill="#ffffff" fillOpacity="0.06" />
       {ticks.map((m) => (
         <g key={m}>
-          <line x1={x(m)} x2={x(m)} y1={laneY - 6} y2={laneY + laneH + 6} stroke="#ffffff" strokeOpacity="0.08" />
-          <text x={x(m)} y={laneY + laneH + 24} textAnchor="middle" fill={MUTED} fontSize="12" fontFamily="Google Sans, system-ui, sans-serif">
+          <line x1={x(m)} x2={x(m)} y1={laneY} y2={laneY + laneH} stroke="#ffffff" strokeOpacity="0.08" />
+          <text x={x(m)} y={laneY + laneH + 16} textAnchor="middle" fill={MUTED} fontSize="11" fontFamily={FONT}>
             {clock(m)}
           </text>
         </g>
       ))}
-      {card.blocks
-        .filter((b) => b.endMin > from && b.startMin < to && b.kind !== "free" && b.kind !== "sleep")
-        .map((b, i) => {
-          const bx = x(b.startMin);
-          const bw = Math.max(6, x(b.endMin) - bx);
-          const c = kindColor(b.kind);
-          const label = bw > 70 ? b.title : bw > 34 ? b.title.slice(0, 4) : "";
-          return (
-            <g key={`${b.title}-${i}`}>
-              <rect x={bx + 1} y={laneY + 10} width={bw - 2} height={laneH - 20} rx="8" fill={c} opacity={b.kind === "work" ? 0.85 : 0.95} />
-              {label && (
-                <text x={bx + bw / 2} y={laneY + laneH / 2 + 5} textAnchor="middle" fill="#0b141a" fontSize={bw > 110 ? 13 : 11} fontWeight="600" fontFamily="Google Sans, system-ui, sans-serif">
-                  {label.length > 18 ? `${label.slice(0, 17)}…` : label}
-                </text>
-              )}
-            </g>
-          );
-        })}
+      {blocks.map((b, i) => {
+        const bx = x(b.startMin);
+        const bw = Math.max(4, x(b.endMin) - bx);
+        const hi = card.highlight && b.title === card.highlight;
+        return (
+          <rect
+            key={`${b.title}-${i}`}
+            x={bx + 1}
+            y={laneY + 5}
+            width={bw - 2}
+            height={laneH - 10}
+            rx="5"
+            fill={kindColor(b.kind)}
+            opacity={b.kind === "work" ? 0.9 : 0.95}
+            stroke={hi ? "#ffffff" : "none"}
+            strokeWidth={hi ? 2 : 0}
+          />
+        );
+      })}
       {card.nowMin !== undefined && card.nowMin >= from && card.nowMin <= to && (
         <g>
-          <line x1={x(card.nowMin)} x2={x(card.nowMin)} y1={laneY - 14} y2={laneY + laneH + 4} stroke="#ff5a5f" strokeWidth="2" />
-          <circle cx={x(card.nowMin)} cy={laneY - 14} r="4" fill="#ff5a5f" />
+          <line x1={x(card.nowMin)} x2={x(card.nowMin)} y1={laneY - 6} y2={laneY + laneH + 2} stroke="#ff5a5f" strokeWidth="2" />
+          <circle cx={x(card.nowMin)} cy={laneY - 7} r="3.5" fill="#ff5a5f" />
         </g>
       )}
-      <g transform={`translate(28, ${H - 78})`}>
-        {[
-          ["work", WORK],
-          ["to-dos", TODO],
-          ["people", SOCIAL],
-          ["health", HEALTH],
-          ["you", PERSONAL],
-        ].map(([label, c], i) => (
-          <g key={label} transform={`translate(${i * 105}, 0)`}>
-            <rect width="10" height="10" rx="2" fill={c} />
-            <text x="16" y="9" fill={MUTED} fontSize="12" fontFamily="Google Sans, system-ui, sans-serif">
-              {label}
+      {rows.length === 0 && (
+        <text x={left} y={rowY} fill={MUTED} fontSize="13" fontFamily={FONT}>
+          nothing on yet
+        </text>
+      )}
+      {rows.map((b, i) => {
+        const y = rowY + i * 28;
+        const hi = card.highlight && b.title === card.highlight;
+        const word = kindWord(b.kind);
+        const title = b.title.length > 26 ? `${b.title.slice(0, 25)}…` : b.title;
+        return (
+          <g key={`${b.title}-${i}-row`}>
+            <circle cx={left + 5} cy={y - 4} r="4.5" fill={kindColor(b.kind)} />
+            <text x={left + 18} y={y} fill={MUTED} fontSize="12" fontFamily={FONT}>
+              {clockRange(b.startMin, b.endMin)}
             </text>
+            <text x={left + 148} y={y} fill={INK} fontSize="13.5" fontWeight={hi ? 700 : 500} fontFamily={FONT}>
+              {title}
+            </text>
+            {hi ? (
+              <text x={right} y={y} textAnchor="end" fill={FREE} fontSize="11" fontWeight="700" fontFamily={FONT}>
+                new
+              </text>
+            ) : (
+              word && (
+                <text x={right} y={y} textAnchor="end" fill={MUTED} fontSize="11" fontFamily={FONT}>
+                  {word}
+                </text>
+              )
+            )}
           </g>
-        ))}
-      </g>
-      <text x={W - 28} y={H - 30} textAnchor="end" fill={INK} fontSize="15" fontWeight="600" fontFamily="Google Sans, system-ui, sans-serif">
+        );
+      })}
+      {blocks.length > rows.length && (
+        <text x={left + 18} y={rowY + rows.length * 28} fill={MUTED} fontSize="12" fontFamily={FONT}>
+          +{blocks.length - rows.length} more
+        </text>
+      )}
+      <line x1={left} x2={right} y1={h - 36} y2={h - 36} stroke="#ffffff" strokeOpacity="0.1" />
+      <text x={left} y={h - 16} fill={INK} fontSize="12.5" fontWeight="600" fontFamily={FONT}>
         {card.footer}
       </text>
     </Frame>
   );
 }
 
+function dayHeight(card: Extract<ImageCard, { variant: "day" }>): number {
+  const n = Math.min(6, card.blocks.filter((b) => b.kind !== "free" && b.kind !== "sleep").length);
+  const extra = card.blocks.filter((b) => b.kind !== "free" && b.kind !== "sleep").length > 6 ? 1 : 0;
+  return 158 + Math.max(1, n + extra) * 28 + 48;
+}
+
 export function ScheduleImage({ card }: { card: ImageCard }) {
   const [open, setOpen] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
+  const h = card.variant === "week" ? WEEK_H : dayHeight(card);
 
   async function save() {
     const svg = svgRef.current;
@@ -201,8 +257,8 @@ export function ScheduleImage({ card }: { card: ImageCard }) {
       img.src = url;
     });
     const canvas = document.createElement("canvas");
-    canvas.width = W * 2;
-    canvas.height = H * 2;
+    canvas.width = W * 3;
+    canvas.height = h * 3;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -214,8 +270,8 @@ export function ScheduleImage({ card }: { card: ImageCard }) {
   }
 
   const picture = (
-    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={card.title} xmlns="http://www.w3.org/2000/svg" style={{ display: "block", borderRadius: 8 }}>
-      {card.variant === "week" ? <WeekSvg card={card} /> : <DaySvg card={card} />}
+    <svg ref={svgRef} viewBox={`0 0 ${W} ${h}`} width="100%" role="img" aria-label={card.title} xmlns="http://www.w3.org/2000/svg" style={{ display: "block", borderRadius: 8 }}>
+      {card.variant === "week" ? <WeekSvg card={card} /> : <DaySvg card={card} h={h} />}
     </svg>
   );
 
@@ -242,7 +298,7 @@ export function ScheduleImage({ card }: { card: ImageCard }) {
             </button>
           </div>
           <div className="flex flex-1 items-center justify-center p-3" onClick={(e) => e.stopPropagation()}>
-            <div className="w-full max-w-3xl">{picture}</div>
+            <div className="w-full max-w-xl">{picture}</div>
           </div>
         </div>
       )}

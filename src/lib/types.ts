@@ -105,6 +105,8 @@ export type ImageCard =
       nowMin?: number;
       blocks: Array<{ title: string; kind: string; startMin: number; endMin: number }>;
       footer: string;
+      /** Title of a block to outline as "new" (proposals). */
+      highlight?: string;
     };
 
 export type MessageCard =
@@ -195,6 +197,16 @@ export interface UserRecord {
   notes?: string;
   /** Date (YYYY-MM-DD, user tz) of the last morning digest, so it goes out once a day. */
   lastDigestDate?: string;
+  /** First-run questions: work hours, unwind time, who to call. Missing = done (older users). */
+  onboarding?: "work" | "unwind" | "people" | "done";
+  /** People Buffer nudges them to call when they are free (from onboarding or chat). */
+  people?: string[];
+  /** One-line explanations already shown, so each feature is explained once. */
+  tips?: string[];
+  /** Date of the last "you're off the clock, call someone" nudge. */
+  lastNudgeDate?: string;
+  /** Rotates through `people` so the nudges do not always name the same person. */
+  nudgeIndex?: number;
 }
 
 export interface NlpDebug {
@@ -224,19 +236,19 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   sleepTime: "23:00",
   workStart: "09:00",
   workEnd: "18:00",
-  socialMinutesPerDay: 120,
+  socialMinutesPerDay: 0,
   maxWorkMinutesPerDay: 480,
   reminderLeadMinutes: 15,
   protectEveningsAfter: "19:00",
   timezone: "UTC",
-  weekendSocialBonusMinutes: 60,
+  weekendSocialBonusMinutes: 0,
   noWorkAfter: "20:00",
 };
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   botDisplayName: "Buffer",
   botAbout:
-    "Finds the free time in your week and keeps it for the rest of your life: people, movement, rest. Work fits around that, not the other way round.",
+    "Tell Buffer when you work. It shows you when you are actually free, and nudges you to spend some of that time with the people you love.",
   defaultUserSettings: DEFAULT_USER_SETTINGS,
   debugNlpInChat: false,
   allowAutoCreateUsers: true,

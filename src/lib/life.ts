@@ -1,6 +1,6 @@
 import { buildDayPlan } from "./scheduler";
-import { addDaysISO, dateISO, formatClock, hmToMinutes, minutesToHM, nowInZone, prettyDate } from "./time";
-import type { CalendarEvent, EventKind, ImageCard, MessageCard, UserRecord } from "./types";
+import { addDaysISO, dateISO, hmToMinutes, minutesToHM, nowInZone, prettyDate, shortClock } from "./time";
+import type { CalendarEvent, EventKind, ImageCard, UserRecord, UserSettings } from "./types";
 import type { DayPlan } from "./scheduler";
 
 /**
@@ -20,9 +20,21 @@ export interface WeekView {
   from: string;
   days: Array<{ date: string; freeMinutes: number; workMinutes: number; socialMinutes: number; windows: FreeWindow[] }>;
   totalFree: number;
+  /** Free minutes that fall on weekday evenings (after the switch-off time). */
+  eveningFree: number;
+  /** Free minutes on Saturday and Sunday. */
+  weekendFree: number;
   totalWork: number;
   totalSocial: number;
   best: FreeWindow[];
+}
+
+/** Standing work hours, or null when the user said their days vary (start == end). */
+export function standingWork(s: UserSettings): { start: number; end: number } | null {
+  const a = hmToMinutes(s.workStart || "09:00");
+  const b = hmToMinutes(s.workEnd || "18:00");
+  if (a === b) return null;
+  return { start: a, end: b };
 }
 
 const weekdayShort = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", { weekday: "short" });
@@ -37,35 +49,42 @@ export function weekView(user: UserRecord, days = 7): WeekView {
   const today = dateISO(now);
   const minutesNow = now.getHours() * 60 + now.getMinutes();
   const eveningAt = hmToMinutes(user.settings.protectEveningsAfter || "19:00");
-  const out: WeekView = { from: today, days: [], totalFree: 0, totalWork: 0, totalSocial: 0, best: [] };
+  const out: WeekView = { from: today, days: [], totalFree: 0, eveningFree: 0, weekendFree: 0, totalWork: 0, totalSocial: 0, best: [] };
   for (let i = 0; i < days; i++) {
     const date = addDaysISO(today, i);
     const plan = buildDayPlan(user, date);
-    // Free time is what is left outside working hours on weekdays; weekends count whole.
+    // Free time is what is left outside standing work hours on weekdays; weekends count whole.
+    // A day that already has a work block on it uses the block, not the standing hours.
     const weekend = isWeekendISO(date);
-    const workStart = hmToMinutes(user.settings.workStart || "09:00");
-    const workEnd = hmToMinutes(user.settings.workEnd || "18:00");
+    const standing = standingWork(user.settings);
+    const hasWorkBlock = user.events.some((e) => e.date === date && e.kind === "work");
+    const cut = !weekend && standing && !hasWorkBlock ? standing : null;
     const windows: FreeWindow[] = plan.blocks
       .filter((b) => b.kind === "free")
       .filter((b) => (i === 0 ? b.endMin > minutesNow + 15 : true))
       .flatMap((b) => {
         const start = i === 0 ? Math.max(b.startMin, Math.ceil(minutesNow / 15) * 15) : b.startMin;
-        const parts: Array<[number, number]> = weekend ? [[start, b.endMin]] : [[start, Math.min(b.endMin, workStart)], [Math.max(start, workEnd), b.endMin]];
+        const parts: Array<[number, number]> = cut ? [[start, Math.min(b.endMin, cut.start)], [Math.max(start, cut.end), b.endMin]] : [[start, b.endMin]];
         return parts
           .filter(([a, z]) => z - a >= 45)
+          // On a work day the morning before work is not "free for life"; evenings and long daytime gaps are.
+          .filter(([a, z]) => weekend || a >= eveningAt - 60 || z - a >= 120)
           .map(
             ([a, z]): FreeWindow => ({
               date,
               startMin: a,
               endMin: z,
-              slot: weekend ? "weekend" : a >= eveningAt ? "evening" : "day",
+              slot: weekend ? "weekend" : a >= eveningAt - 60 ? "evening" : "day",
             }),
           );
       });
     const freeMinutes = windows.reduce((s, w) => s + (w.endMin - w.startMin), 0);
-    out.days.push({ date, freeMinutes, workMinutes: plan.stats.workMinutes, socialMinutes: plan.stats.socialMinutes, windows });
+    const workMinutes = cut ? Math.max(plan.stats.workMinutes, cut.end - cut.start) : plan.stats.workMinutes;
+    out.days.push({ date, freeMinutes, workMinutes, socialMinutes: plan.stats.socialMinutes, windows });
     out.totalFree += freeMinutes;
-    out.totalWork += plan.stats.workMinutes;
+    if (weekend) out.weekendFree += freeMinutes;
+    else out.eveningFree += windows.filter((w) => w.slot === "evening").reduce((s, w) => s + (w.endMin - w.startMin), 0);
+    out.totalWork += workMinutes;
     out.totalSocial += plan.stats.socialMinutes;
   }
   // Best windows: the longest first, with a thumb on the scale for evenings and weekends,
@@ -85,7 +104,7 @@ export function hours(min: number): string {
 }
 
 export function windowLabel(w: FreeWindow): string {
-  return `${weekdayShort(w.date)} ${formatClock(minutesToHM(w.startMin))} to ${formatClock(minutesToHM(w.endMin))}`;
+  return `${weekdayShort(w.date)} ${shortClock(minutesToHM(w.startMin))} to ${shortClock(minutesToHM(w.endMin))}`;
 }
 
 /** "Fri evening", "Sat afternoon", "Sun morning": for button labels. */
@@ -93,34 +112,6 @@ export function slotName(w: FreeWindow): string {
   const h = Math.floor(w.startMin / 60);
   const part = h >= 17 ? "evening" : h >= 12 ? "afternoon" : "morning";
   return `${weekdayShort(w.date)} ${part}`;
-}
-
-/** Card lines for the week: one line per day, biggest window called out. */
-export function weekCard(view: WeekView): MessageCard {
-  const lines = view.days.map((d) => {
-    const biggest = [...d.windows].sort((a, b) => b.endMin - b.startMin - (a.endMin - a.startMin))[0];
-    const free = d.freeMinutes ? `${hours(d.freeMinutes)} free` : "no real gaps";
-    const work = d.workMinutes ? ` · ${hours(d.workMinutes)} work` : "";
-    const win = biggest ? ` · best ${formatClock(minutesToHM(biggest.startMin))} to ${formatClock(minutesToHM(biggest.endMin))}` : "";
-    return `${weekdayShort(d.date)} ${d.date.slice(8)} · ${free}${work}${win}`;
-  });
-  const warnings: string[] = [];
-  const heavy = view.days.filter((d) => d.workMinutes > 0 && d.freeMinutes < 60);
-  if (heavy.length) warnings.push(`${heavy.map((d) => weekdayShort(d.date)).join(", ")}: work leaves under an hour. Worth protecting something.`);
-  return {
-    type: "schedule",
-    date: view.from,
-    lines,
-    warnings,
-    stats: {
-      workMinutes: view.totalWork,
-      socialMinutes: view.totalSocial,
-      personalMinutes: 0,
-      freeMinutes: view.totalFree,
-      socialTarget: 0,
-      workCap: 0,
-    },
-  };
 }
 
 export interface Suggestion {
@@ -142,13 +133,18 @@ export function suggestForFreeTime(user: UserRecord, view: WeekView): Suggestion
   const hasHealth = user.events.some((e) => e.kind === "health" && e.date >= view.from);
   const pool: Array<{ title: string; kind: EventKind; minutes: number; why: string; prefer: FreeWindow["slot"][] }> = [];
   const friend = notes.match(/friend[s]?:?\s*([a-z][a-z .]+)/)?.[1]?.split(/[ ,.]/)[0];
+  const people = user.people?.length ? user.people : friend ? [friend] : [];
+  const cap = (n: string) => n.charAt(0).toUpperCase() + n.slice(1);
   pool.push({
-    title: friend ? `Call ${friend.charAt(0).toUpperCase() + friend.slice(1)}` : "Dinner or a call with a friend",
+    title: people[0] ? `Call ${cap(people[0])}` : "Dinner or a call with a friend",
     kind: "social",
-    minutes: 60,
-    why: socialGap ? "you are behind on people this week" : "keeps the week from being only work",
+    minutes: 45,
+    why: socialGap ? "you have not had much people time this week" : "keeps the week from being only work",
     prefer: ["evening", "weekend"],
   });
+  if (people[1]) {
+    pool.push({ title: `Call ${cap(people[1])}`, kind: "social", minutes: 30, why: "a short one counts", prefer: ["evening", "weekend", "day"] });
+  }
   pool.push({
     title: /run|gym|yoga|swim|cycl/.test(notes) ? "Move: gym, run or a long walk" : "A long walk, no headphones",
     kind: "health",
@@ -163,13 +159,15 @@ export function suggestForFreeTime(user: UserRecord, view: WeekView): Suggestion
     why: "no screens, no to-dos, whatever you like",
     prefer: ["evening", "weekend"],
   });
-  pool.push({
-    title: "Family time",
-    kind: "social",
-    minutes: 60,
-    why: "a call home counts",
-    prefer: ["weekend", "evening"],
-  });
+  if (!people.length) {
+    pool.push({
+      title: "Call home",
+      kind: "social",
+      minutes: 30,
+      why: "a call home counts",
+      prefer: ["weekend", "evening"],
+    });
+  }
 
   const used = new Set<string>();
   const picks: Suggestion[] = [];
@@ -195,29 +193,40 @@ export function dayWord(iso: string, tz: string): string {
 
 /** Text the buttons send back, readable by both parsers. */
 export function suggestionPayload(s: Suggestion, tz: string): string {
-  return `plan ${s.title.toLowerCase()} ${dayWord(s.window.date, tz)} at ${formatClock(minutesToHM(s.window.startMin)).toLowerCase()} for ${s.durationMinutes} minutes, ${s.kind}`;
+  return `plan ${s.title.toLowerCase()} ${dayWord(s.window.date, tz)} at ${shortClock(minutesToHM(s.window.startMin))} for ${s.durationMinutes} minutes, ${s.kind}`;
 }
 
 export function protectPayload(w: FreeWindow, tz: string, forWhom: "people" | "me"): string {
-  return `protect ${dayWord(w.date, tz)} at ${formatClock(minutesToHM(w.startMin)).toLowerCase()} for ${Math.min(120, w.endMin - w.startMin)} minutes for ${forWhom}`;
+  return `protect ${dayWord(w.date, tz)} at ${shortClock(minutesToHM(w.startMin))} for ${Math.min(120, w.endMin - w.startMin)} minutes for ${forWhom}`;
 }
 
 /** A held window: a real event so work cannot be scheduled over it. */
 export function protectedEvent(date: string, start: string, durationMinutes: number, kind: EventKind, label?: string): Omit<CalendarEvent, "id" | "createdAt"> {
   return {
-    title: label ?? (kind === "social" ? "Held for people" : "Held for you"),
+    title: label ?? (kind === "social" ? "Kept for people" : "Kept for you"),
     kind,
     date,
     start,
     durationMinutes,
     flexible: false,
-    notes: "Buffer is keeping this clear. Work does not get scheduled here.",
+    notes: "Buffer is keeping this clear. Nothing else gets planned here.",
   };
 }
 
 export function describeWindow(date: string, start: string, durationMinutes: number): string {
   const s = hmToMinutes(start);
-  return `${prettyDate(date)} · ${formatClock(start)} to ${formatClock(minutesToHM(s + durationMinutes))}`;
+  return `${prettyDate(date)} · ${shortClock(start)} to ${shortClock(minutesToHM((s + durationMinutes) % (24 * 60)))}`;
+}
+
+/** "about 25h of free evenings and 32h of weekend" (whichever parts are non-zero). */
+export function freeSummary(view: WeekView): string {
+  const bits: string[] = [];
+  if (view.eveningFree) bits.push(`${hours(view.eveningFree)} of free evenings`);
+  if (view.weekendFree) bits.push(`${hours(view.weekendFree)} of weekend`);
+  const other = view.totalFree - view.eveningFree - view.weekendFree;
+  if (other >= 60) bits.push(`${hours(other)} in the day`);
+  if (!bits.length) return view.totalFree ? `${hours(view.totalFree)} free` : "no real gaps";
+  return bits.slice(0, 2).join(" and ");
 }
 
 /** The week as a picture: free (outside work) stacked on work, per day. */
@@ -227,7 +236,7 @@ export function weekImage(view: WeekView, user: UserRecord): ImageCard {
     type: "image",
     variant: "week",
     title: "Your next 7 days",
-    subtitle: `${hours(view.totalFree)} free outside work${view.totalWork ? ` · ${hours(view.totalWork)} of work booked` : ""}`,
+    subtitle: freeSummary(view),
     days: view.days.map((d) => {
       const biggest = [...d.windows].sort((a, b) => b.endMin - b.startMin - (a.endMin - a.startMin))[0];
       return {
@@ -235,15 +244,24 @@ export function weekImage(view: WeekView, user: UserRecord): ImageCard {
         label: `${weekdayShort(d.date)} ${Number(d.date.slice(8))}`,
         freeMinutes: d.freeMinutes,
         workMinutes: d.workMinutes,
-        best: biggest ? `${formatClock(minutesToHM(biggest.startMin)).replace(/:00/, "").replace(/\s/g, "").toLowerCase()} to ${formatClock(minutesToHM(biggest.endMin)).replace(/:00/, "").replace(/\s/g, "").toLowerCase()}` : undefined,
+        best: biggest ? `${shortClock(minutesToHM(biggest.startMin)).replace(/\s/g, "")} to ${shortClock(minutesToHM(biggest.endMin)).replace(/\s/g, "")}` : undefined,
         today: d.date === today,
       };
     }),
   };
 }
 
+/** Free minutes still ahead today (or the whole day's free time for another date). */
+export function freeAhead(plan: DayPlan, user: UserRecord): number {
+  const now = nowInZone(user.settings.timezone);
+  if (dateISO(now) !== plan.date) return plan.stats.freeMinutes;
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const total = plan.blocks.filter((b) => b.kind === "free").reduce((n, b) => n + Math.max(0, b.endMin - Math.max(b.startMin, nowMin)), 0);
+  return Math.round(total / 5) * 5;
+}
+
 /** One day as a strip from wake to sleep. */
-export function dayImage(plan: DayPlan, user: UserRecord, label: string): ImageCard {
+export function dayImage(plan: DayPlan, user: UserRecord, label: string, highlight?: string): ImageCard {
   const now = nowInZone(user.settings.timezone);
   const isToday = dateISO(now) === plan.date;
   const from = hmToMinutes(user.settings.wakeTime || "07:00");
@@ -257,16 +275,20 @@ export function dayImage(plan: DayPlan, user: UserRecord, label: string): ImageC
       endMin: b.endMin,
     }));
   const s = plan.stats;
+  const pretty = prettyDate(plan.date);
+  // For today, only the free time still ahead counts.
+  const freeLeft = freeAhead(plan, user);
   return {
     type: "image",
     variant: "day",
     title: label,
-    subtitle: prettyDate(plan.date),
+    subtitle: label === pretty ? new Date(`${plan.date}T12:00:00`).toLocaleDateString("en-US", { weekday: "long" }) : pretty,
     date: plan.date,
     fromMin: from,
     toMin: Math.max(to, from + 60),
     nowMin: isToday ? now.getHours() * 60 + now.getMinutes() : undefined,
     blocks,
-    footer: `${hours(s.workMinutes)} work · ${hours(s.socialMinutes)} people · ${hours(s.freeMinutes)} free`,
+    footer: [s.workMinutes ? `${hours(s.workMinutes)} work` : "", s.socialMinutes ? `${hours(s.socialMinutes)} people` : "", isToday ? `${hours(freeLeft)} free left` : `${hours(freeLeft)} free`].filter(Boolean).join(" · "),
+    highlight,
   };
 }

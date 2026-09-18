@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createUser, getAppSettings, getUserById, getUserByName, upsertUser } from "@/lib/store";
-import { greeting } from "@/lib/bot";
+import { beginChat } from "@/lib/bot";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     });
   }
   if (!user.messages.length) {
-    user = {
+    user = beginChat({
       ...user,
       messages: [
         {
@@ -54,9 +54,8 @@ export async function POST(req: NextRequest) {
           createdAt: user.createdAt,
           status: "read",
         },
-        ...greeting(user.name),
       ],
-    };
+    });
   }
   user = await upsertUser(user);
   const res = NextResponse.json({ user, settings });

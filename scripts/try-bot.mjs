@@ -30,7 +30,7 @@ let user = welcomeIfEmpty({
 
 const inputs = process.argv.slice(2).length
   ? process.argv.slice(2)
-  : ["how's my week", "what should i do with my free time", "keep thursday evening free for people", "gym tmrw 7pm for 1h", "lock it", "remind me to renew my passport", "rundown", "thanks!"];
+  : ["i usually work 9 to 6", "7pm", "mum, dad", "i have work from 7pm - 10 pm today, mark it", "today", "my week", "dinner with sam friday 8pm", "remind me to renew my passport", "undo", "thanks!"];
 
 for (const text of inputs) {
   const r = await processTurn(user, text);
@@ -39,6 +39,8 @@ for (const text of inputs) {
   for (const m of r.replies) {
     console.log(m.text.split("\n").map((l) => "  " + l).join("\n"));
     if (m.card?.type === "schedule") console.log(m.card.lines.map((l) => "    | " + l).join("\n"));
+    if (m.card?.type === "image") console.log(`    [picture: ${m.card.variant} · ${m.card.title} · ${m.card.subtitle}${m.card.variant === "day" ? " · " + m.card.blocks.filter((b) => b.kind !== "free").map((b) => `${b.title} ${b.startMin}-${b.endMin}`).join(", ") : ""}]`);
+    if (m.card?.type === "todos") console.log(m.card.lines.map((l) => "    | " + l).join("\n"));
     if (m.buttons?.length) console.log("  [" + m.buttons.map((b) => b.title).join("] [") + "]");
   }
 }

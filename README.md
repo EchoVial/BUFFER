@@ -1,14 +1,27 @@
 # Buffer
 
-WhatsApp-style assistant that finds the free time in your week and keeps it for the rest of your life: people, movement, rest. Work fits around that, not the other way round. Everything you lock lands on Google, Apple, Android, and Outlook calendars through a private live feed.
+WhatsApp-style assistant. You tell it when you work; it shows you when you are actually free (as a picture, not a wall of text) and nudges you, once a day after you switch off, to call the people you love. Everything you add lands on Google, Apple, Android, and Outlook calendars through a private live feed.
 
-Text Buffer like a friend: `how's my week`, `keep thursday evening free`, `what should i do this weekend`, `gym tmrw 7pm`, `remind me to send the deck`, `rundown`.
+## First run
+
+Three questions, with tap-to-answer buttons: when do you usually work (`9 to 5`, `7pm to 10pm`, or *It varies*), when do you switch off in the evening, and who should Buffer nudge you to call. Everything after that is plain text:
+
+- `work 7 to 10pm today`, `shift 9 to 5 tomorrow`: marks work. No confirmation step unless it clashes with something.
+- `my week`, `today`, `tomorrow`: a picture. The week is free (green) stacked on work (grey) per day; a day is a strip plus the blocks as a list.
+- `dinner with sam friday 8pm`, `gym tomorrow 7am`: plans. `remind me to call nani`: a to-do (no time).
+- `keep friday evening free`: a *Kept for you* block so nothing else gets planned there.
+- `undo`, `+30 min`, `make it 2h`, `move gym to 8pm`, `done with the deck`: changes in plain words.
+- `nudge me to call mum`, `who do i call`: the people behind the evening nudge.
+
+Each feature is explained once, in a bracketed line, the first time it appears. `help` shows the whole thing in five lines; `set up again` reruns the questions.
 
 ## How it understands you
 
-`src/lib/understand.ts` sends each message, with the user's timezone, settings, upcoming events, open to-dos, remembered facts and the last few messages, to Claude (`src/lib/llm.ts`, structured output) and gets back one typed action: intent, title, date, time, length, kind, or a single clarifying question with quick-reply buttons. The scheduler (`src/lib/scheduler.ts`, `src/lib/life.ts`) then does the calendar arithmetic deterministically. Set `ANTHROPIC_API_KEY`; without it the old regex parser in `src/lib/nlp.ts` takes over, so the demo never breaks.
+`src/lib/understand.ts` sends each message, with the user's timezone, settings, upcoming events, open to-dos, remembered facts and the last few messages, to Claude (`src/lib/llm.ts`, structured output) and gets back one typed action: intent, title, date, time, length, kind, or a single clarifying question with quick-reply buttons. The scheduler (`src/lib/scheduler.ts`, `src/lib/life.ts`) then does the calendar arithmetic deterministically. Set `ANTHROPIC_API_KEY`; without it the regex parser in `src/lib/nlp.ts` takes over, so the demo never breaks. Setup answers, button payloads and one-word commands (`undo`, `today`) are handled before either parser runs.
 
-Life-first features: `how's my week` (free time per day, best windows), `what should i do with my free time` (ideas placed into real gaps, shaped by what the week is missing), `protect thursday evening` (a held block that work cannot be scheduled over), and a once-a-day morning digest with an offer to hold the best window.
+The evening nudge (`unwindNudge` in `src/lib/bot.ts`) fires from the client poll (`GET /api/chat`) once a day, in the 90 minutes after the switch-off time, only when nothing is on. On real WhatsApp this would be a scheduled job hitting the same function.
+
+Try the brain without the UI: `npx tsx scripts/try-bot.mjs "9 to 5" "6pm" "mum, dad" "work 7 to 10pm today" "today"`.
 
 ## Git
 

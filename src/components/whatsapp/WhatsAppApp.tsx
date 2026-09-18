@@ -76,7 +76,7 @@ export function WhatsAppApp() {
       {
         id: "boot-1",
         role: "bot",
-        text: "hey — i'm Buffer. i keep the calendar straight so there's still room for people, without nagging.\n\nbefore i remember anything: what should i call you? first name is perfect.",
+        text: "hey, i'm Buffer. tell me when you work and i'll show you when you're actually free, then nudge you to spend some of it with the people you love.\n\nfirst: what should i call you?",
         createdAt: new Date().toISOString(),
         status: "delivered",
       },
@@ -462,7 +462,7 @@ export function WhatsAppApp() {
                   <p>Today&apos;s buffer</p>
                   <p className="text-[13px] text-(--wa-muted)">
                     {user
-                      ? `Social goal ${Math.round(user.settings.socialMinutesPerDay / 60)}h · work cap ${Math.round(user.settings.maxWorkMinutesPerDay / 60)}h`
+                      ? `Off the clock after ${user.settings.protectEveningsAfter}${user.people?.length ? ` · calls: ${user.people.join(", ")}` : ""}`
                       : "Sign in to post a status"}
                   </p>
                 </div>
@@ -471,7 +471,7 @@ export function WhatsAppApp() {
                 Recent
               </p>
               <p className="text-(--wa-muted)">
-                Buffer · tap the chat and say &quot;how am i doing&quot; for a burnout check.
+                Buffer · say &quot;today&quot; or &quot;my week&quot; in the chat for a picture of your time.
               </p>
             </div>
           )}
@@ -803,8 +803,8 @@ export function WhatsAppApp() {
                   {Math.round(user.settings.maxWorkMinutesPerDay / 60)}h
                 </p>
                 <p>
-                  Social {Math.round(user.settings.socialMinutesPerDay / 60)}h / day · no work after{" "}
-                  {user.settings.noWorkAfter || "—"}
+                  Off the clock after {user.settings.protectEveningsAfter}
+                  {user.people?.length ? ` · nudges to call ${user.people.join(", ")}` : ""}
                 </p>
                 <p className="text-(--wa-muted)">Chat kept as {user.name}</p>
                 <p>

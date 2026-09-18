@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserById, mergeIncomingUser, upsertUser } from "@/lib/store";
-import { dailyDigest, dueReminders, processTurn } from "@/lib/bot";
+import { dailyDigest, dueReminders, processTurn, unwindNudge } from "@/lib/bot";
 import type { UserRecord } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -43,7 +43,9 @@ export async function GET(req: NextRequest) {
   const extra = dueReminders(user);
   const digest = dailyDigest(user);
   if (digest.message) extra.unshift(digest.message);
-  if (extra.length) {
+  const nudge = unwindNudge(user);
+  if (nudge.message) extra.push(nudge.message);
+  if (extra.length || nudge.patch) {
     const extraIds = new Set(user.remindedEventIds);
     for (const e of user.events) {
       if (extra.some((m) => m.text.includes(`*${e.title}*`))) {
@@ -54,6 +56,7 @@ export async function GET(req: NextRequest) {
     const saved = await upsertUser({
       ...user,
       ...(digest.patch ?? {}),
+      ...(nudge.patch ?? {}),
       messages: [...user.messages, ...extra],
       remindedEventIds: [...extraIds],
       updatedAt: new Date().toISOString(),
