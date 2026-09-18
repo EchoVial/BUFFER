@@ -243,9 +243,9 @@ function askFor(missing: string[], ev: ConversationDraft["event"]): string {
     return "what and when? say it like *gym tomorrow 7am* or *work 7 to 10pm today*.";
   }
   if (missing.includes("title")) return "what should i call it?";
-  if (missing.includes("date") && missing.includes("time")) return `when is ${what}? say it like *7 to 10pm today* or *tomorrow at 6*.`;
-  if (missing.includes("date")) return `which day is ${what}? today, tomorrow, a weekday, or *every weekday* if it repeats.`;
-  return `what time is ${what}? say *7 to 10pm* for a start and end, or just *7pm*.`;
+  if (missing.includes("date") && missing.includes("time")) return `when is ${what}? say it your way: *7 to 10pm today*, *tomorrow at 6*, *every weekday 9 to 5*.`;
+  if (missing.includes("date")) return `which day is ${what}? today, tomorrow, a weekday, or *every weekday* if it repeats. say it however you like.`;
+  return `what time is ${what}? *7 to 10pm* for a start and end, *7pm* for just a start, or *till 6* if it runs from now.`;
 }
 
 function askMessage(missing: string[], ev: ConversationDraft["event"]): ChatMessage {
@@ -407,13 +407,13 @@ function shiftLater(next: UserRecord, minutes: number): ChatMessage | undefined 
 function introMessages(name: string): ChatMessage[] {
   const first = name.split(" ")[0];
   return [
-    botText(`hey ${first}, i'm *Buffer*.\n\ntell me when you work. i'll show you when you're actually free, and nudge you to spend some of that time with the people you love.`),
+    botText(`hey ${first}, i'm *Buffer*.\n\ntell me when you work. i'll show you when you're actually free, and nudge you to spend some of that time with the people you love.\n\nthe buttons are shortcuts. you can always just type it the way you'd say it and i'll understand.`),
     workQuestion(),
   ];
 }
 
 function workQuestion(): ChatMessage {
-  return botText("two quick questions to set up.\n\nfirst: when do you usually work? tap one or type it, like *9 to 6* or *7pm to 10pm*.", {
+  return botText("two quick questions to set up.\n\nfirst: when do you usually work? tap one, or say it your way: *i have work from 9 to 5 every weekday*, *class 10 to 4 mon to fri*, *it changes every day*.", {
     buttons: [btn("w95", "9 to 5", "i usually work 9 to 5"), btn("w106", "10 to 6", "i usually work 10 to 6"), btn("wvar", "It varies", "it varies")],
   });
 }
@@ -422,13 +422,13 @@ function unwindQuestion(next: UserRecord): ChatMessage {
   const standing = standingWork(next.settings);
   const base = standing ? Math.max(standing.end, 17 * 60) : 19 * 60;
   const opts = [0, 60, 120].map((add) => minutesToHM(Math.min(base + add, 22 * 60)));
-  return botText("and when do you usually switch off from work for the day?", {
+  return botText("and when do you usually switch off from work for the day? pick one below, or type your own time, like *around 8:30* or *usually by 7*.", {
     buttons: opts.map((hm, i) => btn(`u${i}`, clockShort(hm), `i switch off at ${clockShort(hm)}`)),
   });
 }
 
 function peopleQuestion(): ChatMessage {
-  return botText("last one: who should i nudge you to call when you're free? a name or two, like *mum, dad* or *nani and rohan*.", {
+  return botText("last one: who should i nudge you to call when you're free? say it however you like: *mum, dad*, *my sister and rohan*, or *remind me to spend time with my roommates too*.", {
     buttons: [btn("skip", "Skip this", "skip")],
   });
 }
@@ -442,7 +442,7 @@ function finishSetup(next: UserRecord): ChatMessage[] {
   const view = weekView(next);
   const out: ChatMessage[] = [
     botText(
-      `that's the setup. when you're free after ${after}, i'll send one small nudge ${verb} ${who}. never more than once a day.\n\nfrom here, just text me:\n• *work 7 to 10pm today* to mark work hours\n• *my week* or *today* for a picture\n• *dinner with sam friday 8pm* for a plan, *remind me to call nani* for a to-do`,
+      `that's the setup. when you're free after ${after}, i'll send one small nudge ${verb} ${who}. never more than once a day.\n\nfrom here, just text me like a friend. for example:\n• *work 7 to 10pm today* or *no class tomorrow*\n• *my week* or *today* for a picture\n• *dinner with sam friday 8pm* for a plan, *remind me to call nani* for a to-do\n\nthe buttons under my replies are shortcuts, never the only way.`,
     ),
     botText(
       view.totalWork
@@ -522,7 +522,7 @@ async function handleOnboarding(next: UserRecord, text: string): Promise<ChatMes
       next.onboarding = "unwind";
       return [botText(`got it, ${label.toLowerCase()} ${span(range.start, range.durationMinutes)} on weekdays. if a day is different, just tell me: *work 7 to 10pm today*.`), unwindQuestion(next)];
     }
-    return [botText("didn't catch the hours. say it like *9 to 6* or *7pm to 10pm*, or tap *It varies*.", { buttons: workQuestion().buttons })];
+    return [botText("didn't catch the hours. say it any way with a start and an end, like *9 to 6* or *i work 7pm to 10pm*, or tap *It varies*.", { buttons: workQuestion().buttons })];
   }
   if (step === "unwind") {
     const m = t.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
@@ -541,7 +541,7 @@ async function handleOnboarding(next: UserRecord, text: string): Promise<ChatMes
       next.onboarding = "people";
       return [botText("ok, i'll go with 7 pm and you can change it any time: *i switch off at 8pm*."), peopleQuestion()];
     }
-    return [botText("just a time is enough, like *7pm* or *8:30*.", { buttons: unwindQuestion(next).buttons })];
+    return [botText("a time is enough, like *7pm*, *around 8:30* or *usually by 7*.", { buttons: unwindQuestion(next).buttons })];
   }
   if (step === "people") {
     const people = parsePeople(text);
@@ -644,7 +644,7 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
   }
   if (/^add work$/.test(lower)) {
     next.draft = { type: "event", event: { title: "Work", kind: "work" }, missing: ["date", "time"] };
-    push(botText("when? say it like *7 to 10pm today*, *9 to 5 tomorrow*, or *every weekday 9 to 5* if it repeats.", { buttons: [B.cancel] }));
+    push(botText("when? say it the way you'd say it: *7 to 10pm today*, *9 to 5 tomorrow*, or *every weekday from 9 to 5* if it repeats.", { buttons: [B.cancel] }));
     return done();
   }
   if (/^add something$/.test(lower)) {
