@@ -11,7 +11,7 @@ import {
 } from "./types";
 import { uid } from "./ids";
 import { understand, understandSetup } from "./understand";
-import { parseRange, type ParsedMessage } from "./nlp";
+import { isStandingLanguage, parseRange, workLabelFor, type ParsedMessage } from "./nlp";
 import type { SetupUnderstanding } from "./llm";
 import { dayImage, describeWindow, freeLine, protectPayload, protectedEvent, slotName, standingWork, suggestForFreeTime, suggestionPayload, weekImage, weekView, windowLabel } from "./life";
 import { findNamedItem } from "./match";
@@ -244,7 +244,7 @@ function askFor(missing: string[], ev: ConversationDraft["event"]): string {
   }
   if (missing.includes("title")) return "what should i call it?";
   if (missing.includes("date") && missing.includes("time")) return `when is ${what}? say it like *7 to 10pm today* or *tomorrow at 6*.`;
-  if (missing.includes("date")) return `which day is ${what}? today, tomorrow, or a weekday.`;
+  if (missing.includes("date")) return `which day is ${what}? today, tomorrow, a weekday, or *every weekday* if it repeats.`;
   return `what time is ${what}? say *7 to 10pm* for a start and end, or just *7pm*.`;
 }
 
@@ -461,7 +461,7 @@ function finishSetup(next: UserRecord): ChatMessage[] {
 function applySetup(next: UserRecord, a: SetupUnderstanding): ChatMessage[] {
   const step = next.onboarding;
   const gotWork = Boolean((a.work_start && a.work_end) || a.work_varies);
-  if (a.work_start && a.work_end) next.settings = { ...next.settings, workStart: a.work_start, workEnd: a.work_end };
+  if (a.work_start && a.work_end) next.settings = { ...next.settings, workStart: a.work_start, workEnd: a.work_end, workLabel: a.work_label || "Work" };
   else if (a.work_varies) next.settings = { ...next.settings, workStart: "00:00", workEnd: "00:00" };
   if (a.unwind) next.settings = { ...next.settings, protectEveningsAfter: a.unwind, noWorkAfter: a.unwind };
   if (a.people?.length) {
@@ -517,9 +517,10 @@ async function handleOnboarding(next: UserRecord, text: string): Promise<ChatMes
       return [botText("no problem. just tell me each day, like *work 7 to 10pm today*, and i'll keep track."), unwindQuestion(next)];
     }
     if (range) {
-      next.settings = { ...next.settings, workStart: range.start, workEnd: range.end };
+      const label = workLabelFor(t);
+      next.settings = { ...next.settings, workStart: range.start, workEnd: range.end, workLabel: label };
       next.onboarding = "unwind";
-      return [botText(`got it, ${span(range.start, range.durationMinutes)} on weekdays. if a day is different, just tell me: *work 7 to 10pm today*.`), unwindQuestion(next)];
+      return [botText(`got it, ${label.toLowerCase()} ${span(range.start, range.durationMinutes)} on weekdays. if a day is different, just tell me: *work 7 to 10pm today*.`), unwindQuestion(next)];
     }
     return [botText("didn't catch the hours. say it like *9 to 6* or *7pm to 10pm*, or tap *It varies*.", { buttons: workQuestion().buttons })];
   }
@@ -643,7 +644,7 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
   }
   if (/^add work$/.test(lower)) {
     next.draft = { type: "event", event: { title: "Work", kind: "work" }, missing: ["date", "time"] };
-    push(botText("when? say it like *7 to 10pm today* or *9 to 5 tomorrow*.", { buttons: [B.cancel] }));
+    push(botText("when? say it like *7 to 10pm today*, *9 to 5 tomorrow*, or *every weekday 9 to 5* if it repeats.", { buttons: [B.cancel] }));
     return done();
   }
   if (/^add something$/.test(lower)) {
@@ -787,15 +788,16 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     );
   } else if (parsed.intent === "set_pref") {
     next.settings = { ...next.settings, ...parsed.prefs };
+    if (next.draft.type === "event" && parsed.prefs.workStart) next.draft = { type: "none", missing: [] };
     const p = parsed.prefs;
     const bits: string[] = [];
-    if (p.workStart && p.workEnd) bits.push(`usual hours ${span(p.workStart, hmToMinutes(p.workEnd) - hmToMinutes(p.workStart))}`);
+    if (p.workStart && p.workEnd) bits.push(`${(p.workLabel || next.settings.workLabel || "work").toLowerCase()} ${span(p.workStart, hmToMinutes(p.workEnd) - hmToMinutes(p.workStart))} every weekday, and i'll show it on each day`);
     if (p.protectEveningsAfter || p.noWorkAfter) bits.push(`after ${clockShort(p.protectEveningsAfter || p.noWorkAfter!)} the day is yours`);
     if (p.socialMinutesPerDay !== undefined) bits.push(p.socialMinutesPerDay ? `${durationLabel(p.socialMinutesPerDay)} a day kept for people` : "no daily people block");
     if (p.maxWorkMinutesPerDay) bits.push(`no more than ${durationLabel(p.maxWorkMinutesPerDay)} of work a day`);
     if (p.wakeTime) bits.push(`up at ${clockShort(p.wakeTime)}`);
     if (p.sleepTime) bits.push(`asleep by ${clockShort(p.sleepTime)}`);
-    push(botText(bits.length ? `ok: ${bits.join(", ")}.` : "ok, noted.", { buttons: [B.week, B.today] }));
+    push(botText(bits.length ? `got it: ${bits.join(", ")}.` : "ok, noted.", { card: p.workStart ? dayPicture(next, todayISO) : undefined, buttons: [B.week, B.today] }));
   } else if (next.draft.type === "edit" && parsed.intent === "confirm" && next.draft.edit) {
     const edit = next.draft.edit;
     if (edit.kind === "event") {
@@ -913,6 +915,14 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     next.draft = { type: "event", event: ev, missing };
     if (missing.length) push(askMessage(missing, ev));
     else placeEvent(next, finalizeEvent(ev), replies);
+  } else if (next.draft.type === "event" && next.draft.event?.kind === "work" && (isStandingLanguage(parsed.normalized) || /\b(all|every|each) (week)?days?\b|\bweekdays\b|\bmon(day)? (to|-) fri(day)?\b/.test(parsed.normalized)) && (parsed.event.start || next.draft.event.start)) {
+    // "which day is Work?" answered with "all weekdays": that is a standing block, not one event.
+    const start = parsed.event.start || next.draft.event.start!;
+    const minutes = parsed.event.durationMinutes || next.draft.event.durationMinutes || 480;
+    const label = workLabelFor(parsed.normalized) === "Work" ? next.settings.workLabel || "Work" : workLabelFor(parsed.normalized);
+    next.settings = { ...next.settings, workStart: start, workEnd: minutesToHM((hmToMinutes(start) + minutes) % (24 * 60)), workLabel: label };
+    next.draft = { type: "none", missing: [] };
+    push(botText(`got it: ${label.toLowerCase()} ${span(start, minutes)} every weekday. i'll show it on each day, and weekday evenings and weekends count as free.`, { card: dayPicture(next, todayISO), buttons: [B.week, B.today] }));
   } else if (next.draft.type === "event" && (parsed.intent === "add_event" || parsed.intent === "unknown" || hasSlots)) {
     next.draft = applyEventPatch(next.draft, parsed);
     if (next.draft.missing.length) {
@@ -953,6 +963,18 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
       const todos = plan.blocks.filter((b) => b.kind === "todo" && b.id).map((b) => ({ id: b.id as string, plannedDate: ev.date, plannedStart: minutesToHM(b.startMin) }));
       next.draft = { type: "reshuffle", missing: [], reshuffle: { eventId: ev.id, todos, summary: `slide ${todos.length} to-do${todos.length === 1 ? "" : "s"} around ${ev.title}` } };
       push(botText(`here's how to-dos would wrap around *${ev.title}*. tap *Make the change* to keep this order.`, { card: dayImage(plan, next, prettyDate(ev.date)), buttons: CHANGE_BUTTONS }));
+    }
+  } else if (parsed.intent === "day_off") {
+    const date = parsed.event.date || todayISO;
+    const label = (next.settings.workLabel || "work").toLowerCase();
+    const backOn = /\b(back on|is on|not off|after all|back to normal)\b/.test(parsed.normalized);
+    if (backOn) {
+      next.daysOff = (next.daysOff ?? []).filter((d) => d !== date);
+      push(botText(`ok, ${label} is back on ${dayWordFor(date, tz)}.`, { card: dayPicture(next, date), buttons: [B.today, B.week] }));
+    } else {
+      if (!next.daysOff?.includes(date)) next.daysOff = [...(next.daysOff ?? []), date].slice(-30);
+      const plan = buildDayPlan(next, date);
+      push(botText(`ok, no ${label} ${dayWordFor(date, tz)}. ${freeLine(plan, next)}`, { card: dayPicture(next, date), buttons: [B.ideas, B.today, B.week] }));
     }
   } else if (parsed.intent === "schedule") {
     const date = parsed.event.date || todayISO;

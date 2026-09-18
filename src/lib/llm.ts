@@ -33,6 +33,7 @@ export const INTENTS = [
   "status",
   "chitchat",
   "question",
+  "day_off",
   "calendar",
   "calendar_connected",
   "star",
@@ -85,6 +86,7 @@ export const UnderstandingSchema = z.object({
       sleepTime: z.string().nullable(),
       workStart: z.string().nullable(),
       workEnd: z.string().nullable(),
+      workLabel: z.string().nullable().describe("What to call the standing weekday block: 'Class' for students, 'Shift', else 'Work'."),
       noWorkAfter: z.string().nullable(),
       protectEveningsAfter: z.string().nullable(),
     })
@@ -109,7 +111,8 @@ export type Understanding = z.infer<typeof UnderstandingSchema>;
 export const SetupSchema = z.object({
   work_start: z.string().nullable().describe("HH:MM usual work start, if the person gave standing hours."),
   work_end: z.string().nullable().describe("HH:MM usual work end."),
-  work_varies: z.boolean().nullable().describe("True if they said their hours change day to day / no fixed hours / student / freelance."),
+  work_varies: z.boolean().nullable().describe("True if they said their hours change day to day / no fixed hours / freelance. A student with fixed class hours is NOT varies: fill work_start/work_end and work_label 'Class'."),
+  work_label: z.string().nullable().describe("'Class' for lectures/college/school, 'Shift' for shift work, otherwise 'Work'. Null if no hours given."),
   unwind: z.string().nullable().describe("HH:MM when they usually switch off from work in the evening, if given."),
   people: z.array(z.string()).max(4).nullable().describe("Who they want to be nudged to call or spend time with: short names in Title case ('Mom', 'Dad', 'Roommates', 'Sam'). Null if none given."),
   skip: z.boolean().describe("True if they declined to answer the current question (skip, no one, not now)."),
@@ -145,6 +148,7 @@ const FEATURES = `What Buffer can do (answer questions about itself from this, n
 - "reserve friday evening" puts a block called "Reserved for you" on the calendar so nothing else gets planned there.
 - Once a day, in the 90 minutes after your switch-off time, if nothing is on, it nudges you to call one of your people ("nudge me to call mum" adds someone; "who do i call" lists them).
 - "connect calendar" gives a private feed for Google, Apple, Android and Outlook; everything Buffer saves shows up there within about 15 minutes.
+- Standing work or class hours ("every weekday 9 to 5") repeat on weekdays automatically; "no class tomorrow" or "off friday" clears them for that day. Other plans do not repeat yet; each one is added on its day.
 - It does not read your existing calendar yet, does not send messages to other people, and has no voice or photo input yet.`;
 
 const SYSTEM = `You are the understanding layer of Buffer, a WhatsApp assistant for students and young professionals.
@@ -159,7 +163,8 @@ You receive one message plus context (date/time in the user's timezone, their se
 
 Intent guide:
 - add_event: a block with a time ("gym tmrw 7pm", "dinner w sam fri", "call mum sunday"). Social = with people. If the user is mid-draft (draft present) and sends just a time or a length, still use add_event and fill only the new slot.
-- WORK ON A DAY IS AN EVENT: "work 7 to 10pm today", "i have work from 7pm-10pm today, mark it", "shift tomorrow 9 to 5", "working till 8 tonight" = add_event, kind work, title "Work", start = range start, duration_minutes = range length. If no day is named, date = today. Only "i usually work 9 to 6", "my hours are 9 to 6", "every day 9 to 5" are set_pref (workStart/workEnd).
+- WORK ON A DAY IS AN EVENT: "work 7 to 10pm today", "i have work from 7pm-10pm today, mark it", "shift tomorrow 9 to 5", "working till 8 tonight" = add_event, kind work, title "Work" (or "Class"), start = range start, duration_minutes = range length. If no day is named, date = today.
+- REPEATING WORK IS A PREFERENCE: "every weekday from 9am to 5pm i have class, mark that", "i usually work 9 to 6", "my hours are 9 to 6", "mon to fri 10 to 7", "all weekdays" as an answer about a range = set_pref with prefs.workStart, prefs.workEnd and prefs.workLabel ("Class", "Shift" or "Work"). Buffer then shows that block on every weekday. Only work/class/shift repeats this way; other repeating plans ("gym every day") are not supported yet: use question and say so, offering to add the next one.
 - A range like "7 to 10pm" gives both start and duration_minutes (180). "9 to 6" means 9am to 6pm.
 - add_todo: something to do without a fixed time ("remind me to send the deck", bullet lists, "need to renew passport").
 - complete_todo: they finished something ("done with the deck").
@@ -171,6 +176,7 @@ Intent guide:
 - plan_free: they want ideas for their free time or ask what to do with it ("what should i do this weekend", "i have a free evening", "suggest something").
 - protect: reserve time for themselves or people ("keep thursday evening free", "reserve sunday for me", "protect my evenings"). Fill date/start/duration if given; kind = social or personal.
 - set_pref: standing rules about their days ("i usually work 9 to 6", "2 hours for people daily", "no work after 8", "i wind down at 8"). "i wind down / unwind / switch off at 8pm" = prefs.protectEveningsAfter and noWorkAfter = "20:00".
+- day_off: no standing work/class on a day ("no class tomorrow", "off today", "holiday on friday", "classes cancelled"): date = that day (today if none). Buffer drops the standing block for that day.
 - todos: list to-dos. overlaps: clashes. status: "how am i doing", burnout talk. calendar: connect/add to calendar. options: asks for the menu. help: "how does this work" with no specific question.
 - question: they ask something Buffer can answer in words: about Buffer ("what can you do", "do you sync with google", "what does reserve mean", "why did you do that"), about their own schedule from the context ("when did i say i work", "how many to-dos do i have", "who do you nudge me about"), or anything else where a short honest answer is the right response. Put the answer in reply. Be honest about limits (see the feature list).
 - confirm: yes / save it / go ahead / make the change. cancel: no / scrap it / never mind / leave it.

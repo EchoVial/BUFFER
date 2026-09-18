@@ -104,6 +104,22 @@ export function buildDayPlan(user: UserRecord, date: string): DayPlan {
       movable: e.flexible,
     };
   });
+  // Standing hours ("every weekday 9 to 5") are a block on weekdays, unless the day is off or a marked
+  // work block overlaps them (then the marked one is the truth for that day).
+  const standingStart = hmToMinutes(s.workStart);
+  const standingEnd = hmToMinutes(s.workEnd);
+  const overlapsStanding = dayEvents.some((e) => e.kind === "work" && hmToMinutes(e.start) < standingEnd && hmToMinutes(e.start) + e.durationMinutes > standingStart);
+  const dayOff = user.daysOff?.includes(date) ?? false;
+  if (standingEnd > standingStart && !isWeekend(date) && !overlapsStanding && !dayOff) {
+    eventBlocks.push({
+      startMin: standingStart,
+      endMin: standingEnd,
+      title: s.workLabel || "Work",
+      kind: "event",
+      subtype: "work",
+      movable: false,
+    });
+  }
 
   const overlaps: DayPlan["overlaps"] = [];
   for (let i = 0; i < eventBlocks.length; i++) {
@@ -125,9 +141,9 @@ export function buildDayPlan(user: UserRecord, date: string): DayPlan {
   const gaps = freeGaps(occupied, wake, sleep);
   const todoBlocks: ScheduleBlock[] = [];
   const unplaced: string[] = [];
-  let workUsed = dayEvents
-    .filter((e) => e.kind === "work")
-    .reduce((n, e) => n + e.durationMinutes, 0);
+  let workUsed = eventBlocks
+    .filter((b) => b.subtype === "work")
+    .reduce((n, b) => n + (b.endMin - b.startMin), 0);
   let socialUsed = dayEvents
     .filter((e) => e.kind === "social")
     .reduce((n, e) => n + e.durationMinutes, 0);

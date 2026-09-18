@@ -53,18 +53,14 @@ export function weekView(user: UserRecord, days = 7): WeekView {
   for (let i = 0; i < days; i++) {
     const date = addDaysISO(today, i);
     const plan = buildDayPlan(user, date);
-    // Free time is what is left outside standing work hours on weekdays; weekends count whole.
-    // A day that already has a work block on it uses the block, not the standing hours.
+    // Free time is what the day plan leaves open (standing hours already sit in it as a block on weekdays).
     const weekend = isWeekendISO(date);
-    const standing = standingWork(user.settings);
-    const hasWorkBlock = user.events.some((e) => e.date === date && e.kind === "work");
-    const cut = !weekend && standing && !hasWorkBlock ? standing : null;
     const windows: FreeWindow[] = plan.blocks
       .filter((b) => b.kind === "free")
       .filter((b) => (i === 0 ? b.endMin > minutesNow + 15 : true))
       .flatMap((b) => {
         const start = i === 0 ? Math.max(b.startMin, Math.ceil(minutesNow / 15) * 15) : b.startMin;
-        const parts: Array<[number, number]> = cut ? [[start, Math.min(b.endMin, cut.start)], [Math.max(start, cut.end), b.endMin]] : [[start, b.endMin]];
+        const parts: Array<[number, number]> = [[start, b.endMin]];
         return parts
           .filter(([a, z]) => z - a >= 45)
           // On a work day the morning before work is not "free for life"; evenings and long daytime gaps are.
@@ -79,7 +75,7 @@ export function weekView(user: UserRecord, days = 7): WeekView {
           );
       });
     const freeMinutes = windows.reduce((s, w) => s + (w.endMin - w.startMin), 0);
-    const workMinutes = cut ? Math.max(plan.stats.workMinutes, cut.end - cut.start) : plan.stats.workMinutes;
+    const workMinutes = plan.stats.workMinutes;
     out.days.push({ date, freeMinutes, workMinutes, socialMinutes: plan.stats.socialMinutes, windows });
     out.totalFree += freeMinutes;
     if (weekend) out.weekendFree += freeMinutes;
@@ -278,7 +274,10 @@ export function freeLine(plan: DayPlan, user: UserRecord): string {
   if (!free.length) return "the day is full.";
   const busy = plan.blocks.some((b) => b.kind !== "free" && b.kind !== "sleep");
   if (!busy) return "the day is open.";
-  const big = [...free].sort((a, b) => b.endMin - b.startMin - (a.endMin - a.startMin))[0];
+  // Longest wins; evenings get a thumb on the scale, since that is when people time happens.
+  const eveningAt = hmToMinutes(user.settings.protectEveningsAfter || "19:00");
+  const score = (b: { startMin: number; endMin: number }) => b.endMin - b.startMin + (b.startMin >= eveningAt - 60 ? 45 : 0);
+  const big = [...free].sort((a, b) => score(b) - score(a))[0];
   return `the biggest open stretch is ${clock(big.startMin)} to ${clock(big.endMin)}.`;
 }
 

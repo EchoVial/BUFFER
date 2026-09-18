@@ -7,6 +7,7 @@ WhatsApp-style assistant. You tell it when you work; it shows you when you are a
 Three questions, with tap-to-answer buttons: when do you usually work (`9 to 5`, `7pm to 10pm`, or *It varies*), when do you switch off in the evening, and who should Buffer nudge you to call. Everything after that is plain text:
 
 - `work 7 to 10pm today`, `shift 9 to 5 tomorrow`: marks work. No confirmation step unless it clashes with something.
+- `every weekday from 9am to 5pm i have class`, `i usually work 9 to 6`, or `all weekdays` when asked which day: standing hours. They show as a block (Class, Shift or Work) on every weekday until a marked block overlaps them; `no class tomorrow` or `off friday` clears one day, `class is back on tuesday` restores it.
 - `my week`, `today`, `tomorrow`: a picture. The week is free (green) stacked on work (grey) per day; a day is a strip plus the blocks as a list.
 - `dinner with sam friday 8pm`, `gym tomorrow 7am`: plans. `remind me to call nani`: a to-do (no time).
 - `reserve friday evening` (or `keep friday evening free`): a *Reserved for you* block so nothing else gets planned there.

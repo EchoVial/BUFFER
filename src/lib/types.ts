@@ -16,6 +16,8 @@ export interface UserSettings {
   timezone: string;
   weekendSocialBonusMinutes: number;
   noWorkAfter: string | null;
+  /** What the standing weekday block is called on the day picture: "Work", "Class", "Shift". */
+  workLabel?: string;
 }
 
 export interface CalendarEvent {
@@ -207,6 +209,8 @@ export interface UserRecord {
   lastNudgeDate?: string;
   /** Rotates through `people` so the nudges do not always name the same person. */
   nudgeIndex?: number;
+  /** Dates (YYYY-MM-DD) with no standing work/class block: "no class tomorrow", "off friday". */
+  daysOff?: string[];
 }
 
 export interface NlpDebug {
