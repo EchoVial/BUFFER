@@ -165,8 +165,8 @@ export function buildDayPlan(user: UserRecord, date: string): DayPlan {
     }
     for (const gap of gaps) {
       if (placed) break;
-      const lo =
-        todo.kind === "work" ? Math.max(gap.start, hmToMinutes(s.workStart)) : gap.start;
+      const workFrom = hmToMinutes(s.workStart) === hmToMinutes(s.workEnd) ? 9 * 60 : hmToMinutes(s.workStart);
+      const lo = todo.kind === "work" ? Math.max(gap.start, workFrom) : gap.start;
       const hi =
         todo.kind === "work" ? Math.min(gap.end, workEndCap) : gap.end;
       if (hi - lo < todo.estimatedMinutes) continue;
@@ -211,11 +211,13 @@ export function buildDayPlan(user: UserRecord, date: string): DayPlan {
     });
     for (const gap of ranked) {
       if (need <= 0) break;
-      const slice = Math.min(need, gap.end - gap.start);
+      // Sit in the evening part of a gap when there is one; people time in the morning rarely lands.
+      const from = gap.start < evening && gap.end - evening >= 20 ? evening : gap.start;
+      const slice = Math.min(need, gap.end - from);
       if (slice < 20) continue;
       socialBlocks.push({
-        startMin: gap.start,
-        endMin: gap.start + slice,
+        startMin: from,
+        endMin: from + slice,
         title: "Space for people",
         kind: "social",
         movable: true,
@@ -323,6 +325,16 @@ export function planLines(plan: DayPlan): string[] {
 
 export function statsLine(stats: DayStats): string {
   return `Work ${durationLabel(stats.workMinutes)}/${durationLabel(stats.workCap)} · Social ${durationLabel(stats.socialMinutes)}/${durationLabel(stats.socialTarget)} · Free ${durationLabel(stats.freeMinutes)}`;
+}
+
+/** The same numbers in plain words, no targets or caps: "3h of work, 1h with people, 6h free". */
+export function plainStats(stats: DayStats): string {
+  const bits: string[] = [];
+  if (stats.workMinutes) bits.push(`${durationLabel(stats.workMinutes)} of work`);
+  if (stats.socialMinutes) bits.push(`${durationLabel(stats.socialMinutes)} with people`);
+  if (stats.personalMinutes) bits.push(`${durationLabel(stats.personalMinutes)} for you`);
+  bits.push(stats.freeMinutes ? `${durationLabel(stats.freeMinutes)} free` : "no free time left");
+  return bits.join(", ");
 }
 
 export function proposeEvent(

@@ -85,7 +85,32 @@ export interface ChatMessage {
   calendarEventId?: string;
 }
 
+/** A picture instead of a wall of text: the week as bars, or a day as a strip. Drawn client-side. */
+export type ImageCard =
+  | {
+      type: "image";
+      variant: "week";
+      title: string;
+      subtitle: string;
+      days: Array<{ date: string; label: string; freeMinutes: number; workMinutes: number; best?: string; today?: boolean }>;
+    }
+  | {
+      type: "image";
+      variant: "day";
+      title: string;
+      subtitle: string;
+      date: string;
+      fromMin: number;
+      toMin: number;
+      nowMin?: number;
+      blocks: Array<{ title: string; kind: string; startMin: number; endMin: number }>;
+      footer: string;
+      /** Title of a block to outline as "new" (proposals). */
+      highlight?: string;
+    };
+
 export type MessageCard =
+  | ImageCard
   | {
       type: "schedule";
       date: string;
@@ -170,6 +195,18 @@ export interface UserRecord {
   calendarConnectedVia?: string;
   lastNlp?: NlpDebug;
   notes?: string;
+  /** Date (YYYY-MM-DD, user tz) of the last morning digest, so it goes out once a day. */
+  lastDigestDate?: string;
+  /** First-run questions: work hours, unwind time, who to call. Missing = done (older users). */
+  onboarding?: "work" | "unwind" | "people" | "done";
+  /** People Buffer nudges them to call when they are free (from onboarding or chat). */
+  people?: string[];
+  /** One-line explanations already shown, so each feature is explained once. */
+  tips?: string[];
+  /** Date of the last "you're off the clock, call someone" nudge. */
+  lastNudgeDate?: string;
+  /** Rotates through `people` so the nudges do not always name the same person. */
+  nudgeIndex?: number;
 }
 
 export interface NlpDebug {
@@ -199,19 +236,19 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   sleepTime: "23:00",
   workStart: "09:00",
   workEnd: "18:00",
-  socialMinutesPerDay: 120,
+  socialMinutesPerDay: 0,
   maxWorkMinutesPerDay: 480,
   reminderLeadMinutes: 15,
   protectEveningsAfter: "19:00",
   timezone: "UTC",
-  weekendSocialBonusMinutes: 60,
+  weekendSocialBonusMinutes: 0,
   noWorkAfter: "20:00",
 };
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   botDisplayName: "Buffer",
   botAbout:
-    "Keeps the calendar honest and leaves a little room for people — friends, family, a walk, a coffee — without nagging.",
+    "Tell Buffer when you work. It shows you when you are actually free, and nudges you to spend some of that time with the people you love.",
   defaultUserSettings: DEFAULT_USER_SETTINGS,
   debugNlpInChat: false,
   allowAutoCreateUsers: true,

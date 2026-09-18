@@ -23,6 +23,11 @@ export type Intent =
   | "unstar"
   | "edit_item"
   | "reshuffle"
+  | "week"
+  | "free_time"
+  | "plan_free"
+  | "protect"
+  | "clarify"
   | "unknown";
 
 export interface ParsedMessage {
@@ -53,6 +58,13 @@ export interface ParsedMessage {
   cancel: boolean;
   renameTo?: string;
   targetHint?: string;
+  /** From the Claude layer: one clarifying question and quick replies. */
+  question?: string;
+  options?: Array<{ title: string; payload: string }>;
+  /** From the Claude layer: a short natural line to use for chitchat / fallbacks. */
+  replyHint?: string;
+  /** From the Claude layer: durable facts to remember. */
+  memoryNotes?: string[];
   notes: string[];
   debug: NlpDebug;
 }
@@ -203,6 +215,14 @@ function parseTime(text: string): { start?: string; note?: string } {
   }
   const mil = text.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
   if (mil) return { start: `${mil[1].padStart(2, "0")}:${mil[2]}` };
+  const atEarly = text.match(/\bat\s+(\d{1,2})(?::(\d{2}))?\b/);
+  if (atEarly) {
+    let h = Number(atEarly[1]);
+    const m = Number(atEarly[2] || 0);
+    const late = /\b(tonight|evening|night|afternoon|after work|pm)\b/.test(text);
+    if (h < 8 || (late && h < 12)) h += 12;
+    return { start: minutesToHM(h * 60 + m) };
+  }
   if (/\bnoon\b|\bmidday\b/.test(text)) return { start: "12:00" };
   if (/\bmidnight\b/.test(text)) return { start: "00:00" };
   if (/\bmorning\b/.test(text)) return { start: "09:00", note: "morning" };
@@ -218,6 +238,47 @@ function parseTime(text: string): { start?: string; note?: string } {
     return { start: minutesToHM(h * 60 + m) };
   }
   return {};
+}
+
+/**
+ * "7pm to 10pm", "9-6", "7 to 10 pm", "13:00 until 17:30": a start and an end.
+ * One meridiem is enough; the other follows ("9 to 6pm" = 9am to 6pm, "7 to 10pm" = 7pm to 10pm).
+ */
+export function parseRange(text: string): { start: string; end: string; durationMinutes: number } | undefined {
+  const m = text.match(/(?<![\d\/.-])\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:to|-|–|—|until|till)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
+  if (!m) return undefined;
+  const h1 = Number(m[1]);
+  const m1 = Number(m[2] || 0);
+  const h2 = Number(m[4]);
+  const m2 = Number(m[5] || 0);
+  if (h1 > 24 || h2 > 24 || m1 > 59 || m2 > 59) return undefined;
+  let ap1 = m[3];
+  let ap2 = m[6];
+  if (!ap1 && ap2) ap1 = ap2 === "pm" && h1 <= 12 && h1 > h2 ? "am" : ap2;
+  if (ap1 && !ap2) ap2 = ap1 === "am" && (h2 < h1 || h2 === 12) ? "pm" : ap1;
+  const to24 = (h: number, ap?: string) => {
+    if (ap === "pm" && h < 12) return h + 12;
+    if (ap === "am" && h === 12) return 0;
+    return h;
+  };
+  let start = to24(h1, ap1) * 60 + m1;
+  let end = to24(h2, ap2) * 60 + m2;
+  if (!ap1 && !ap2 && end <= start) end += 12 * 60;
+  if (end <= start) end += 12 * 60;
+  if (end <= start) return undefined;
+  if (end - start > 16 * 60) return undefined;
+  if (start >= 24 * 60) start -= 24 * 60;
+  return { start: minutesToHM(start), end: minutesToHM(end % (24 * 60)), durationMinutes: end - start };
+}
+
+/** Names a specific day: today, tomorrow, a weekday, a date. */
+export function hasDayWord(text: string): boolean {
+  return /\b(today|tomorrow|tonight|this (?:morning|afternoon|evening|weekend)|next week|sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tue|tues|wed|thu|thur|thurs|fri|sat)\b/.test(text) || /\b\d{1,2}[\/-]\d{1,2}\b/.test(text);
+}
+
+/** Talks about the usual shape of their days rather than one day. */
+export function isStandingLanguage(text: string): boolean {
+  return /\b(usually|normally|typically|generally|every ?day|daily|each day|weekdays|on weekdays|most days|mon(?:day)? (?:to|-|through) fri(?:day)?|my (?:work |working )?hours|work hours|working hours|i work|my job is|my shift)\b/.test(text);
 }
 
 function parseDuration(text: string): number | undefined {
@@ -253,7 +314,7 @@ function parsePriority(text: string): TodoPriority | undefined {
   return undefined;
 }
 
-function parsePrefs(text: string, notes: string[]) {
+function parsePrefs(text: string, notes: string[], standingWork: boolean) {
   const prefs: ParsedMessage["prefs"] = {};
   const social = text.match(
     /\b(?:want|need|protect|keep|give me|leave me|i want)?\s*(?:at least\s*)?(\d+(?:\.\d+)?)\s*(?:hours|hour)\s*(?:of\s+|for\s+)?(?:social|friends|hangout|life|people)/,
@@ -281,7 +342,7 @@ function parsePrefs(text: string, notes: string[]) {
   const workRange = text.match(
     /\b(?:work|working|i work)\s*(?:from\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:to|-|until|till)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/,
   );
-  if (workRange) {
+  if (workRange && standingWork) {
     const toHm = (
       h0: string,
       m0: string | undefined,
@@ -319,6 +380,14 @@ function parsePrefs(text: string, notes: string[]) {
     prefs.sleepTime = minutesToHM(h * 60 + m);
     notes.push(`sleep ${prefs.sleepTime}`);
   }
+  if (/\b(switch off|switching off|wind down|unwind|off the clock|clock off|finish work|stop working|done with work|log off)\b/.test(text)) {
+    const t = parseTime(text);
+    if (t.start) {
+      prefs.protectEveningsAfter = t.start;
+      prefs.noWorkAfter = t.start;
+      notes.push(`switch off ${t.start}`);
+    }
+  }
   if (/\bno work after\b|\bprotect my evenings\b|\bno meetings after\b/.test(text)) {
     const t = parseTime(text);
     if (t.start) prefs.noWorkAfter = t.start;
@@ -331,24 +400,27 @@ function parsePrefs(text: string, notes: string[]) {
 
 function stripTitle(text: string): string {
   return text
-    .replace(/\b(please|can you|could you|wanna|i want to|i need to|remind me to|add|schedule|plan|book|put|set|also|another|new|next|lets|let's|gonna|going to|create)\b/g, " ")
+    .replace(/\b(please|can you|could you|wanna|i want to|i need to|remind me to|add|schedule|plan|book|put|set|also|another|new|next|lets|let's|gonna|going to|create|i have|i've got|i got|i'm working|im working|mark (?:it|this|that|me)(?: down| in| busy)?|block (?:it|this|that|me)(?: out| off)?|from|until|till|move|reschedule|shift|push|change|instead|make it)\b/g, " ")
     .replace(/\b(today|tomorrow|tonight|this (?:morning|afternoon|evening|weekend)|next week)\b/g, " ")
     .replace(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\b/g, " ")
+    .replace(/\b(at\s+)?\d{1,2}(?::\d{2})?\s*(am|pm)?\s*(?:to|-|–|—)\s*\d{1,2}(?::\d{2})?\s*(am|pm)?\b/g, " ")
     .replace(/\b(at\s+)?\d{1,2}(?::\d{2})?\s*(am|pm)?\b/g, " ")
+    .replace(/(^|\s)[-–—,]+(?=\s|$)/g, " ")
     .replace(/\bfor\s+\d+(?:\.\d+)?\s*(hours|hour|minutes|minute|hrs|hr|h|m)\b/g, " ")
     .replace(/\b\d+(?:\.\d+)?\s*(hours|hour|minutes|minute|hrs|hr|h|m)\b/g, " ")
     .replace(/\b(p0|p1|p2|p3|urgent|high priority|low priority)\b/g, " ")
-    .replace(/\b(work|social|personal|health)\b/g, " ")
-    .replace(/\b(meeting|call|event|todo|task|reminder)\b/g, " ")
+    .replace(/\b(social|personal|health)\b/g, " ")
+    .replace(/\b(work)\b(?=.*\b(meeting|call|deck|report|session|study|on)\b)/g, " ")
+    .replace(/\b(meeting|event|todo|task|reminder|working)\b/g, " ")
     .replace(/[?.!]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 function isConfirm(text: string): boolean {
-  return /^(yes|y|ok|okay|sure|do it|lock it|lock|go ahead|sounds good|perfect|bet|i guess|alright|all good|yup|confirm|save it|make the change|apply it)$/.test(
+  return /^(yes|y|ok|okay|sure|do it|lock it|lock|save|save it|keep it|add it|go ahead|sounds good|perfect|bet|i guess|alright|all good|yup|confirm|make the change|apply it|yes save|yes save it|yes add it)$/.test(
     text,
-  ) || /\b(lock it in|make it so|go for it|make the change|yes change it|apply the change)\b/.test(text);
+  ) || /\b(lock it in|make it so|go for it|make the change|yes change it|apply the change|save it)\b/.test(text);
 }
 
 function isCancel(text: string): boolean {
@@ -389,7 +461,7 @@ function isOptionsAsk(text: string): boolean {
 }
 
 function isAddLanguage(text: string): boolean {
-  return /\b(add|plan|book|schedule|put me down|new|another|also|create|set up|i have|i've got|i got|going to|gonna|let's|lets|can we add|put (me )?in|pencil (me |it )?in)\b/.test(
+  return /\b(add|plan|book|schedule|put me down|new|another|also|create|set up|i have|i've got|i got|going to|gonna|let's|lets|can we add|put (me )?in|pencil (me |it )?in|mark (it|this|that|me)( down| in| busy)?|block (it|this|that|me)( out| off)?|i'm working|im working|working)\b/.test(
     text,
   );
 }
@@ -413,11 +485,38 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
   const notes: string[] = [];
   const normalized = normalize(raw);
   const tz = user.settings.timezone || "UTC";
-  const prefs = parsePrefs(normalized, notes);
+  const range = parseRange(normalized);
+  const dayNamed = hasDayWord(normalized);
+  const standingWork = isStandingLanguage(normalized) && !dayNamed;
+  const prefs = parsePrefs(normalized, notes, standingWork);
   const { date, note: dateNote } = parseDate(normalized, tz);
-  const { start, note: timeNote } = parseTime(normalized);
-  const durationMinutes = parseDuration(normalized);
+  const parsedTime = parseTime(normalized);
   const kind = parseKind(normalized);
+  if (range) notes.push(`range ${range.start}-${range.end}`);
+  // "working till 8", "work until 6pm": a block from now to that time, today.
+  let untilStart: string | undefined;
+  let untilDuration: number | undefined;
+  const until = !range && normalized.match(/\b(?:till|until|up to)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
+  if (until && kind === "work" && (!date || date === dateISO(nowInZone(tz)))) {
+    let h = Number(until[1]);
+    const m = Number(until[2] || 0);
+    const late = /\b(tonight|evening|night|afternoon)\b/.test(normalized);
+    if (until[3] === "pm" && h < 12) h += 12;
+    if (until[3] === "am" && h === 12) h = 0;
+    if (!until[3] && (h < 8 || (late && h < 12))) h += 12;
+    const now = nowInZone(tz);
+    const nowMin = Math.floor((now.getHours() * 60 + now.getMinutes()) / 5) * 5;
+    const endMin = h * 60 + m;
+    if (endMin > nowMin + 10) {
+      untilStart = minutesToHM(nowMin);
+      untilDuration = endMin - nowMin;
+      notes.push(`until ${minutesToHM(endMin)} from now`);
+    }
+  }
+  // A range ("7 to 10pm") wins over a lone clock time; it also gives the length.
+  const start = range?.start ?? untilStart ?? parsedTime.start;
+  const timeNote = parsedTime.note;
+  const durationMinutes = parseDuration(normalized) ?? range?.durationMinutes ?? untilDuration;
   const priority = parsePriority(normalized);
   if (dateNote) notes.push(dateNote);
   if (timeNote) notes.push(timeNote);
@@ -433,15 +532,29 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
   else if (cancel) intent = "cancel";
   else if (
     Object.keys(prefs).length &&
-    /\b(want|need|set|make|keep|protect|from|wake|sleep|cap|limit|hours of social|social hours|work from|for people)\b/.test(
-      normalized,
-    )
+    (standingWork ||
+      /\b(want|need|set|make|keep|protect|wake|sleep|cap|limit|hours of social|social hours|for people|no work after|unwind|wind down|switch off|switching off|off the clock|clock off|finish work|stop working|log off)\b/.test(
+        normalized,
+      ))
   ) {
     intent = "set_pref";
   } else if (
-    /\b(what's today|whats today|rundown|run down|my day|schedule|what's on|whats on|today look|plan for today|show (my )?day)\b/.test(
+    /\b(keep|hold|block|protect|reserve|save)\b.*\b(free|for me|for myself|for people|for friends|evening|evenings|weekend|clear)\b/.test(normalized) ||
+    /\b(protect|block off|hold|reserve)\b/.test(normalized)
+  ) {
+    intent = "protect";
+  } else if (
+    /\b(what should i do|ideas? for|suggest|something to do|what to do with)\b/.test(normalized) &&
+    /\b(free|evening|weekend|time|tonight|today|tomorrow)\b/.test(normalized)
+  ) {
+    intent = "plan_free";
+  } else if (/\b(when am i free|am i free|free time|how's my week|hows my week|my week|this week|week ahead|next 7 days|whole week)\b/.test(normalized)) {
+    intent = /\bweek\b/.test(normalized) ? "week" : "free_time";
+  } else if (
+    /\b(what's today|whats today|rundown|run down|my day|schedule|what's on|whats on|today look|plan for today|show (my )?day|how does .* look|what do i have)\b/.test(
       normalized,
-    )
+    ) ||
+    /^(today|tomorrow|tonight|day|my day|this (?:morning|afternoon|evening)|(?:this |next )?(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tue|tues|wed|thu|thur|thurs|fri|sat))\??$/.test(normalized)
   ) {
     intent = "schedule";
   } else if (/\boverlap/.test(normalized) || /\bdouble.?book/.test(normalized)) {
@@ -470,11 +583,13 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
   ) {
     intent = "calendar";
   } else if (
-    /\b(meeting|call|lunch|dinner|brunch|gym|interview|appointment|hang|date|block|deep work|sync|book|put me down|dentist|doctor|class|workout|session)\b/.test(
+    /\b(meeting|call|lunch|dinner|brunch|gym|interview|appointment|hang|date|block|deep work|sync|book|put me down|dentist|doctor|class|workout|session|shift|lecture|lab|exam)\b/.test(
       normalized,
     ) ||
     isAddLanguage(normalized) ||
-    (start && /\b(at|from|tomorrow|today|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(normalized))
+    Boolean(range) ||
+    (kind === "work" && Boolean(start)) ||
+    (start && (hasDayWord(normalized) || /\b(at|from)\b/.test(normalized)))
   ) {
     intent = "add_event";
   } else if (/^(hi|hey|hello|yo|sup|what's up|whats up|heya)$/.test(normalized)) {
@@ -492,14 +607,17 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
   if (intent === "unknown" && user.draft.type === "event") intent = "add_event";
   if (intent === "unknown" && user.draft.type === "todo") intent = "add_todo";
 
-  let title = stripTitle(normalized);
-  if (title.length < 2) {
+  let title = stripTitle(normalized).replace(/^(?:to|and|it)\s+/, "");
+  if (title.replace(/[^a-z0-9]/gi, "").length < 2) {
     if (/\blunch\b/.test(normalized)) title = "Lunch";
     else if (/\bdinner\b/.test(normalized)) title = "Dinner";
     else if (/\bgym\b/.test(normalized)) title = "Gym";
     else if (/\bmeeting\b/.test(normalized)) title = "Meeting";
     else if (/\bcall\b/.test(normalized)) title = "Call";
-    else title = raw.trim();
+    else if (/\b(shift|work|working|office|job)\b/.test(normalized)) title = "Work";
+    else if (/\b(class|lecture|lab)\b/.test(normalized)) title = "Class";
+    else if (/\b(study|studying|revision)\b/.test(normalized)) title = "Study";
+    else title = raw.split("\n")[0].trim().slice(0, 40);
   }
   title = title.replace(/^(to|for|with)\s+/i, "");
   title = title.replace(/\bunder\s+[^:]+:\s*/i, "");
@@ -507,10 +625,11 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
   title = title.replace(/\s+/g, " ").trim();
   title = title.replace(/(\b(for|to|with|at|on)\s*)+$/i, "").trim();
   title = title.replace(/^[,.\s]+|[,.\s]+$/g, "").trim();
-  if (title.length < 2) {
+  if (title.replace(/[^a-z0-9]/gi, "").length < 2) {
     if (/\bgym\b/.test(normalized)) title = "Gym";
     else if (/\bmeeting\b/.test(normalized)) title = "Meeting";
-    else title = raw.split("\n")[0].trim() || "Event";
+    else if (kind === "work") title = "Work";
+    else title = raw.split("\n")[0].trim().slice(0, 40) || "Event";
   }
   title = title.charAt(0).toUpperCase() + title.slice(1);
   if (/\b(plan (a |something )?social|something social|plan a hang)\b/.test(normalized)) {
@@ -522,6 +641,10 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
   const targetHint = hintFromText(raw) || title;
   const lockedIntents = new Set([
     "options",
+    "week",
+    "free_time",
+    "plan_free",
+    "protect",
     "calendar_connected",
     "confirm",
     "cancel",

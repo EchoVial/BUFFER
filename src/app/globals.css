@@ -137,21 +137,114 @@
   }
 }
 
+/* ---------- WhatsApp palettes ---------- */
+:root, [data-theme="dark"] {
+  --wa-bg: #0b141a;          /* app background behind everything */
+  --wa-wall: #0b141a;        /* chat wallpaper tint */
+  --wa-panel: #111b21;       /* side list, sheets */
+  --wa-bar: #202c33;         /* header, composer */
+  --wa-in: #202c33;          /* incoming bubble */
+  --wa-out: #005c4b;         /* outgoing bubble */
+  --wa-accent: #00a884;
+  --wa-accent-ink: #111b21;
+  --wa-text: #e9edef;
+  --wa-muted: #8696a0;
+  --wa-icon: #aebac1;
+  --wa-input: #2a3942;
+  --wa-pop: #233138;
+  --wa-chip: #182229;
+  --wa-link: #53bdeb;
+  --wa-tick: #53bdeb;
+  --wa-time: rgba(255, 255, 255, 0.6);
+  --wa-divider: rgba(255, 255, 255, 0.1);
+  --wa-hover: rgba(255, 255, 255, 0.06);
+  --wa-handle: rgba(255, 255, 255, 0.25);
+  --wa-doodle: 0.035;
+  --wa-shadow: 0 1px 0.5px rgba(0, 0, 0, 0.35);
+}
+[data-theme="light"] {
+  --wa-bg: #efeae2;
+  --wa-wall: #efeae2;
+  --wa-panel: #ffffff;
+  --wa-bar: #f0f2f5;
+  --wa-in: #ffffff;
+  --wa-out: #d9fdd3;
+  --wa-accent: #008069;
+  --wa-accent-ink: #ffffff;
+  --wa-text: #111b21;
+  --wa-muted: #667781;
+  --wa-icon: #54656f;
+  --wa-input: #ffffff;
+  --wa-pop: #ffffff;
+  --wa-chip: #ffffff;
+  --wa-link: #027eb5;
+  --wa-tick: #53bdeb;
+  --wa-time: #667781;
+  --wa-divider: rgba(17, 27, 33, 0.1);
+  --wa-hover: rgba(17, 27, 33, 0.05);
+  --wa-handle: rgba(17, 27, 33, 0.2);
+  --wa-doodle: 0.5;
+  --wa-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+}
+[data-theme="dark"][data-wall="sage"] { --wa-wall: #0f2a25; }
+[data-theme="dark"][data-wall="sky"] { --wa-wall: #0f2233; }
+[data-theme="dark"][data-wall="sand"] { --wa-wall: #2a2216; }
+[data-theme="dark"][data-wall="rose"] { --wa-wall: #2b1a22; }
+[data-theme="dark"][data-wall="lilac"] { --wa-wall: #211b33; }
+[data-theme="light"][data-wall="sage"] { --wa-wall: #dfe9df; }
+[data-theme="light"][data-wall="sky"] { --wa-wall: #dbe8f2; }
+[data-theme="light"][data-wall="sand"] { --wa-wall: #f1e6d2; }
+[data-theme="light"][data-wall="rose"] { --wa-wall: #f3dfe6; }
+[data-theme="light"][data-wall="lilac"] { --wa-wall: #e6e0f3; }
+[data-wall="plain"] { --wa-doodle: 0; }
+
+html { background: var(--wa-bg); }
+
+/* Chat wallpaper: tint plus WhatsApp-style doodles. In light mode the doodles are dark-on-light. */
 .wa-wallpaper {
-  background-color: #0b141a;
-  background-image:
-    radial-gradient(circle at 12% 8%, rgba(255, 255, 255, 0.035) 0 2px, transparent 3px),
-    radial-gradient(circle at 72% 32%, rgba(18, 140, 126, 0.08) 0 1px, transparent 2px),
-    radial-gradient(circle at 40% 70%, rgba(255, 255, 255, 0.03) 0 1.5px, transparent 2px),
-    linear-gradient(180deg, rgba(11, 20, 26, 0.2), rgba(11, 20, 26, 0.65));
-  background-size: 280px 280px, 180px 180px, 220px 220px, 100% 100%;
+  background-color: var(--wa-wall);
+  position: relative;
+}
+.wa-wallpaper::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: var(--wa-doodle);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='260' height='260' viewBox='0 0 260 260' fill='none' stroke='%23fff' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' opacity='0.9'><circle cx='34' cy='40' r='9'/><path d='M60 26l4 8 8 1-6 6 1 9-7-4-7 4 1-9-6-6 8-1z'/><path d='M120 40c0-8 6-12 12-12s12 4 12 12-12 18-12 18-12-10-12-18z'/><rect x='170' y='24' width='30' height='24' rx='4'/><path d='M170 34h30M178 24v-6M192 24v-6'/><path d='M226 44c8-10 20-10 26 0'/><path d='M28 110h22v16H28zM50 114h6a4 4 0 010 8h-6'/><path d='M96 128c0-10 8-16 16-16s16 6 16 16'/><circle cx='112' cy='106' r='6'/><path d='M156 100l10 14 10-14'/><path d='M154 120h24'/><circle cx='214' cy='118' r='12'/><path d='M214 110v8l6 4'/><path d='M24 190c10-14 26-14 36 0'/><path d='M42 176v-10'/><path d='M96 192l10-20 10 20'/><path d='M100 186h12'/><rect x='150' y='178' width='22' height='30' rx='11'/><path d='M161 208v14M150 190h22'/><path d='M206 200l8 8 16-16'/><circle cx='70' cy='236' r='6'/><circle cx='134' cy='236' r='6'/><circle cx='198' cy='236' r='6'/><path d='M230 232c6-6 14-6 20 0'/></svg>");
+  background-size: 260px 260px;
+}
+[data-theme="light"] .wa-wallpaper::before {
+  filter: invert(1) brightness(0.55);
+  opacity: calc(var(--wa-doodle) * 0.12);
+}
+.wa-wallpaper > * { position: relative; }
+
+/* Bubble tails, like the real thing. */
+.wa-bubble { position: relative; box-shadow: var(--wa-shadow); }
+.wa-bubble.wa-in.wa-tail::before,
+.wa-bubble.wa-out.wa-tail::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 8px;
+  height: 13px;
+  background: inherit;
+}
+.wa-bubble.wa-in.wa-tail::before {
+  left: -8px;
+  clip-path: polygon(100% 0, 0 0, 100% 100%);
+}
+.wa-bubble.wa-out.wa-tail::before {
+  right: -8px;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
 }
 
 .wa-dot {
   width: 6px;
   height: 6px;
   border-radius: 999px;
-  background: #8696a0;
+  background: var(--wa-muted);
   display: inline-block;
   animation: wa-bounce 1s infinite ease-in-out;
 }

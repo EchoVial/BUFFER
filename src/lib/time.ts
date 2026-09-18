@@ -54,6 +54,14 @@ export function formatClock(hm: string): string {
   return m === 0 ? `${hr} ${suffix}` : `${hr}:${pad(m)} ${suffix}`;
 }
 
+/** "7 pm", "7:30 am": the way people write times in a chat. */
+export function shortClock(hm: string): string {
+  const { h, m } = parseHM(hm);
+  const suffix = h >= 12 ? "pm" : "am";
+  const hr = h % 12 || 12;
+  return m === 0 ? `${hr} ${suffix}` : `${hr}:${pad(m)} ${suffix}`;
+}
+
 export function addDaysISO(iso: string, days: number): string {
   const [y, mo, d] = iso.split("-").map(Number);
   const dt = new Date(y, mo - 1, d);

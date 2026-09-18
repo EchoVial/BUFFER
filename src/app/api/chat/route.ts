@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserById, mergeIncomingUser, upsertUser } from "@/lib/store";
-import { dueReminders, processTurn } from "@/lib/bot";
+import { dailyDigest, dueReminders, processTurn, unwindNudge } from "@/lib/bot";
 import type { UserRecord } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
   if (!text) {
     return NextResponse.json({ error: "Empty message." }, { status: 400 });
   }
-  const result = processTurn(user, text);
+  const result = await processTurn(user, text);
   const saved = await upsertUser(result.user);
   return NextResponse.json({ user: saved, replies: result.replies });
 }
@@ -41,7 +41,11 @@ export async function GET(req: NextRequest) {
   const user = await getUserById(userId);
   if (!user) return NextResponse.json({ error: "not found" }, { status: 404 });
   const extra = dueReminders(user);
-  if (extra.length) {
+  const digest = dailyDigest(user);
+  if (digest.message) extra.unshift(digest.message);
+  const nudge = unwindNudge(user);
+  if (nudge.message) extra.push(nudge.message);
+  if (extra.length || nudge.patch) {
     const extraIds = new Set(user.remindedEventIds);
     for (const e of user.events) {
       if (extra.some((m) => m.text.includes(`*${e.title}*`))) {
@@ -51,6 +55,8 @@ export async function GET(req: NextRequest) {
     }
     const saved = await upsertUser({
       ...user,
+      ...(digest.patch ?? {}),
+      ...(nudge.patch ?? {}),
       messages: [...user.messages, ...extra],
       remindedEventIds: [...extraIds],
       updatedAt: new Date().toISOString(),
