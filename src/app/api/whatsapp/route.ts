@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { beginChat, processTurn } from "@/lib/bot";
 import { createWhatsAppUser, deleteUser, getUserByPhone, upsertUser } from "@/lib/store";
 import { originFromRequest } from "@/lib/calendar";
@@ -17,29 +17,44 @@ export async function GET(req: NextRequest) {
   return new NextResponse("forbidden", { status: 403 });
 }
 
-/** Every message someone sends the test number lands here. */
+/**
+ * Every message someone sends the test number lands here. Meta wants a 200
+ * within a few seconds and retries (then backs off) when it does not get one,
+ * so the answer is sent first and the thinking happens after the response.
+ */
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as WaWebhook | null;
   if (!body || body.object !== "whatsapp_business_account") return NextResponse.json({ ok: true });
   const origin = originFromRequest(req);
+  const work: Array<{ message: WaMessage; profileName?: string }> = [];
+  let statuses = 0;
   for (const entry of body.entry ?? []) {
     for (const change of entry.changes ?? []) {
       const value = change.value;
+      statuses += value?.statuses?.length ?? 0;
       if (!value?.messages?.length) continue; // delivery/read statuses: nothing to do
       const profileName = value.contacts?.[0]?.profile?.name;
-      for (const message of value.messages) {
+      for (const message of value.messages) work.push({ message, profileName });
+    }
+  }
+  console.log(`[buffer] wa webhook: ${work.length} message(s), ${statuses} status(es)`);
+  if (work.length) {
+    after(async () => {
+      for (const { message, profileName } of work) {
         try {
           await handle(message, profileName, origin);
         } catch (err) {
           console.warn("[buffer] whatsapp handle failed", err instanceof Error ? err.message : err);
         }
       }
-    }
+    });
   }
   return NextResponse.json({ ok: true });
 }
 
-async function handle(message: Parameters<typeof incomingText>[0], profileName: string | undefined, origin: string) {
+type WaMessage = Parameters<typeof incomingText>[0];
+
+async function handle(message: WaMessage, profileName: string | undefined, origin: string) {
   const phone = message.from;
   if (!phone) return;
   let user = await getUserByPhone(phone);
