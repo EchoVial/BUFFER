@@ -5,12 +5,20 @@ import type { UserRecord } from "./types";
 import { dateISO, nowInZone } from "./time";
 
 /**
- * Buffer's understanding layer. One structured call to Claude turns a messy
- * WhatsApp text into a typed action plus, when the person goes off script,
- * the words to say back; the scheduler still does all the calendar arithmetic
- * deterministically. Without ANTHROPIC_API_KEY (or any other Anthropic
- * credential the SDK resolves) every function here returns null and the
- * regex parser in nlp.ts takes over.
+ * Buffer's understanding layer. One structured call to a language model turns
+ * a messy WhatsApp text into a typed action plus, when the person goes off
+ * script, the words to say back; the scheduler still does all the calendar
+ * arithmetic deterministically.
+ *
+ * The model is whatever the environment points at, open models first:
+ *   GROQ_API_KEY            Groq (free tier), default llama-3.3-70b-versatile
+ *   GEMINI_API_KEY          Google AI Studio (free tier), default gemma-3-27b-it
+ *   OPENROUTER_API_KEY      OpenRouter, default google/gemma-3-27b-it:free
+ *   OLLAMA_HOST / OLLAMA_MODEL   a local Ollama, default gemma3
+ *   LLM_BASE_URL + LLM_API_KEY + LLM_MODEL   any OpenAI-compatible endpoint
+ *   ANTHROPIC_API_KEY       Claude (claude-opus-5)
+ * With none of these set every function here returns null and the regex
+ * parser in nlp.ts takes over.
  */
 
 export const INTENTS = [
@@ -124,20 +132,156 @@ export const SetupSchema = z.object({
 });
 export type SetupUnderstanding = z.infer<typeof SetupSchema>;
 
-let client: Anthropic | null | undefined;
-function getClient(): Anthropic | null {
-  if (client !== undefined) return client;
-  if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
-    client = null;
-    return client;
+type Provider =
+  | { kind: "anthropic"; model: string; label: string }
+  | { kind: "openai"; baseUrl: string; apiKey?: string; model: string; label: string; jsonMode: boolean };
+
+let provider: Provider | null | undefined;
+
+/** Which model the environment points at. Open models win over Claude when both are set. */
+export function resolveProvider(): Provider | null {
+  if (provider !== undefined) return provider;
+  const env = process.env;
+  const model = env.LLM_MODEL;
+  if (env.LLM_BASE_URL) {
+    provider = { kind: "openai", baseUrl: env.LLM_BASE_URL.replace(/\/$/, ""), apiKey: env.LLM_API_KEY, model: model || "gemma3", label: `${model || "gemma3"} @ ${env.LLM_BASE_URL}`, jsonMode: env.LLM_JSON_MODE !== "off" };
+  } else if (env.GROQ_API_KEY) {
+    provider = { kind: "openai", baseUrl: "https://api.groq.com/openai/v1", apiKey: env.GROQ_API_KEY, model: model || "llama-3.3-70b-versatile", label: `groq ${model || "llama-3.3-70b-versatile"}`, jsonMode: true };
+  } else if (env.GEMINI_API_KEY || env.GOOGLE_API_KEY) {
+    provider = { kind: "openai", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", apiKey: env.GEMINI_API_KEY || env.GOOGLE_API_KEY, model: model || "gemma-3-27b-it", label: `google ${model || "gemma-3-27b-it"}`, jsonMode: !/gemma/i.test(model || "gemma-3-27b-it") };
+  } else if (env.OPENROUTER_API_KEY) {
+    provider = { kind: "openai", baseUrl: "https://openrouter.ai/api/v1", apiKey: env.OPENROUTER_API_KEY, model: model || "google/gemma-3-27b-it:free", label: `openrouter ${model || "google/gemma-3-27b-it:free"}`, jsonMode: false };
+  } else if (env.OLLAMA_HOST || env.OLLAMA_MODEL) {
+    const host = (env.OLLAMA_HOST || "http://localhost:11434").replace(/\/$/, "");
+    provider = { kind: "openai", baseUrl: `${host}/v1`, model: env.OLLAMA_MODEL || model || "gemma3", label: `ollama ${env.OLLAMA_MODEL || model || "gemma3"}`, jsonMode: true };
+  } else if (env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN) {
+    provider = { kind: "anthropic", model: env.ANTHROPIC_MODEL || "claude-opus-5", label: env.ANTHROPIC_MODEL || "claude-opus-5" };
+  } else {
+    provider = null;
   }
-  client = new Anthropic({ maxRetries: 1, timeout: 25_000 });
-  return client;
+  return provider;
 }
 
 export function llmAvailable(): boolean {
-  return getClient() !== null;
+  return resolveProvider() !== null;
 }
+
+/** "groq llama-3.3-70b-versatile", "ollama gemma3", "rules" */
+export function modelLabel(): string {
+  return resolveProvider()?.label ?? "rules";
+}
+
+let anthropicClient: Anthropic | undefined;
+function getAnthropic(): Anthropic {
+  anthropicClient ??= new Anthropic({ maxRetries: 1, timeout: 25_000 });
+  return anthropicClient;
+}
+
+/** Pull the first JSON object out of a model reply that may have fences or chatter around it. */
+function extractJson(text: string): unknown {
+  const cleaned = text.replace(/```(?:json)?/gi, "").trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start >= 0 && end > start) return JSON.parse(cleaned.slice(start, end + 1));
+    throw new Error("no json in reply");
+  }
+}
+
+/**
+ * One structured call, whichever provider. Small open models sometimes drop
+ * null fields or wrap the JSON in prose, so the OpenAI path validates loosely
+ * (every field optional) and fills the gaps from `defaults`.
+ */
+async function callStructured<S extends z.ZodObject>(schema: S, defaults: z.infer<S>, system: string, user: string, maxTokens: number): Promise<z.infer<S> | null> {
+  const p = resolveProvider();
+  if (!p) return null;
+  try {
+    if (p.kind === "anthropic") {
+      const response = await getAnthropic().messages.parse({
+        model: p.model,
+        max_tokens: maxTokens,
+        system,
+        messages: [{ role: "user", content: user }],
+        output_config: { effort: "low", format: zodOutputFormat(schema) },
+      });
+      // A safety refusal or a truncated answer: let the regex parser handle the turn.
+      if (response.stop_reason === "refusal" || response.stop_reason === "max_tokens") return null;
+      return (response.parsed_output as z.infer<S> | null) ?? null;
+    }
+    const jsonSchema = JSON.stringify(z.toJSONSchema(schema));
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 25_000);
+    const res = await fetch(`${p.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(p.apiKey ? { Authorization: `Bearer ${p.apiKey}` } : {}) },
+      body: JSON.stringify({
+        model: p.model,
+        temperature: 0.2,
+        max_tokens: maxTokens,
+        ...(p.jsonMode ? { response_format: { type: "json_object" } } : {}),
+        messages: [
+          { role: "system", content: `${system}\n\nAnswer with one JSON object only, no prose and no code fences, matching this JSON schema (use null for anything not given):\n${jsonSchema}` },
+          { role: "user", content: user },
+        ],
+      }),
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timer));
+    if (!res.ok) {
+      console.warn("[buffer] model call failed", p.label, res.status, (await res.text()).slice(0, 300));
+      return null;
+    }
+    const data = (await res.json()) as { choices?: Array<{ message?: { content?: string | null } }> };
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) return null;
+    const loose = schema.partial().safeParse(extractJson(content));
+    if (!loose.success) {
+      console.warn("[buffer] model reply did not match the schema", p.label, loose.error.issues.slice(0, 3));
+      return null;
+    }
+    const merged = { ...defaults } as Record<string, unknown>;
+    for (const [k, v] of Object.entries(loose.data as Record<string, unknown>)) if (v !== undefined) merged[k] = v;
+    return merged as z.infer<S>;
+  } catch (err) {
+    console.warn("[buffer] model call failed", p.label, err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+const UNDERSTANDING_DEFAULTS: Understanding = {
+  intent: "unknown",
+  confidence: 0.6,
+  reply: null,
+  lead: null,
+  question: null,
+  options: null,
+  title: null,
+  kind: null,
+  date: null,
+  start: null,
+  duration_minutes: null,
+  items: null,
+  target: null,
+  rename_to: null,
+  priority: null,
+  due_date: null,
+  prefs: null,
+  people: null,
+  memory_notes: null,
+};
+
+const SETUP_DEFAULTS: SetupUnderstanding = {
+  work_start: null,
+  work_end: null,
+  work_varies: null,
+  work_label: null,
+  unwind: null,
+  people: null,
+  skip: false,
+  reply: "",
+};
 
 const VOICE = `Buffer's voice: warm, brief, lowercase like a text from a friend, plain words, no em dashes, no emoji, no exclamation marks. Never corporate. It can be a little dry and funny. It never lectures about work-life balance; it just makes room for people.`;
 
@@ -151,7 +295,7 @@ const FEATURES = `What Buffer can do (answer questions about itself from this, n
 - Standing work or class hours ("every weekday 9 to 5") repeat on weekdays automatically; "no class tomorrow" or "off friday" clears them for that day. Other plans do not repeat yet; each one is added on its day.
 - It does not read your existing calendar yet, does not send messages to other people, and has no voice or photo input yet.`;
 
-const SYSTEM = `You are the understanding layer of Buffer, a WhatsApp assistant for students and young professionals.
+const SYSTEM = `You are the understanding layer of Buffer, a WhatsApp assistant for students and young professionals. You only ever output one JSON object.
 
 Buffer's purpose: the user tells it when they work; it shows them when they are actually free and nudges them to spend some of that time with the people they love (a call home, a friend). It also keeps their calendar and to-dos honest. It is warm, brief and never nags.
 
@@ -235,25 +379,14 @@ function contextFor(user: UserRecord): string {
   ].join("\n\n");
 }
 
-export async function understandWithClaude(raw: string, user: UserRecord): Promise<Understanding | null> {
-  const anthropic = getClient();
-  if (!anthropic) return null;
-  try {
-    const response = await anthropic.messages.parse({
-      model: "claude-opus-5",
-      max_tokens: 2000,
-      system: SYSTEM,
-      messages: [{ role: "user", content: `${contextFor(user)}\n\nmessage: """${raw}"""` }],
-      output_config: { effort: "low", format: zodOutputFormat(UnderstandingSchema) },
-    });
-    // A safety refusal or a truncated answer: let the regex parser handle the turn.
-    if (response.stop_reason === "refusal" || response.stop_reason === "max_tokens") return null;
-    return response.parsed_output ?? null;
-  } catch (err) {
-    console.warn("[buffer] claude understanding failed", err instanceof Error ? err.message : err);
-    return null;
-  }
+export async function understandWithModel(raw: string, user: UserRecord): Promise<Understanding | null> {
+  const out = await callStructured(UnderstandingSchema, UNDERSTANDING_DEFAULTS, SYSTEM, `${contextFor(user)}\n\nmessage: """${raw}"""`, 2000);
+  if (!out || !INTENTS.includes(out.intent)) return null;
+  return out;
 }
+
+/** Older name, kept for callers. */
+export const understandWithClaude = understandWithModel;
 
 const SETUP_SYSTEM = `You read answers to Buffer's three setup questions and return them as fields.
 
@@ -263,25 +396,18 @@ ${FEATURES}
 
 The questions, in order: (1) when do you usually work, (2) when do you usually switch off from work in the evening, (3) who should Buffer nudge you to call when you are free. You are told which question was just asked. People answer loosely: "9 to 6 mostly", "depends, i'm a student", "around 8", "my mom, and remind me to spend some time with my roommates too", "skip". Fill every field the answer gives, including answers to questions not yet asked ("9 to 6 and i'm done by 7" fills work and unwind). A lone clock time after question 1 is not a work range; after question 2 it is the unwind time. For question 3, people can be roles ("Mom", "Roommates", "my sister" -> "Sister") or names. "Spend time with X" counts as a person to nudge about. If the answer asks something unrelated, answer it in reply in one sentence and still fill what you can. reply never asks the next question.`;
 
-export async function understandSetupWithClaude(step: "work" | "unwind" | "people", raw: string, user: UserRecord): Promise<SetupUnderstanding | null> {
-  const anthropic = getClient();
-  if (!anthropic) return null;
+export async function understandSetupWithModel(step: "work" | "unwind" | "people", raw: string, user: UserRecord): Promise<SetupUnderstanding | null> {
+  if (!resolveProvider()) return null;
   const asked = step === "work" ? "(1) when do you usually work?" : step === "unwind" ? "(2) when do you usually switch off from work for the day?" : "(3) who should i nudge you to call when you're free?";
   const tz = user.settings.timezone || "UTC";
   const standing = user.settings.workStart === user.settings.workEnd ? "varies" : `${user.settings.workStart}-${user.settings.workEnd}`;
   const known = `already answered: work ${step === "work" ? "not yet" : standing}; switch-off ${step === "people" ? user.settings.protectEveningsAfter : "not yet"}; people ${user.people?.length ? user.people.join(", ") : "not yet"}`;
-  try {
-    const response = await anthropic.messages.parse({
-      model: "claude-opus-5",
-      max_tokens: 800,
-      system: SETUP_SYSTEM,
-      messages: [{ role: "user", content: `user: ${user.name}\ntimezone: ${tz}\n${known}\nquestion just asked: ${asked}\n\nrecent chat:\n${recentChat(user, 6)}\n\nanswer: """${raw}"""` }],
-      output_config: { effort: "low", format: zodOutputFormat(SetupSchema) },
-    });
-    if (response.stop_reason === "refusal" || response.stop_reason === "max_tokens") return null;
-    return response.parsed_output ?? null;
-  } catch (err) {
-    console.warn("[buffer] claude setup failed", err instanceof Error ? err.message : err);
-    return null;
-  }
+  const out = await callStructured(SetupSchema, SETUP_DEFAULTS, SETUP_SYSTEM, `user: ${user.name}\ntimezone: ${tz}\n${known}\nquestion just asked: ${asked}\n\nrecent chat:\n${recentChat(user, 6)}\n\nanswer: """${raw}"""`, 800);
+  if (!out) return null;
+  // A model that answered nothing useful should not swallow the turn; the regexes get it.
+  if (!out.reply && !out.work_start && !out.work_varies && !out.unwind && !out.people?.length && !out.skip) return null;
+  return out;
 }
+
+/** Older name, kept for callers. */
+export const understandSetupWithClaude = understandSetupWithModel;

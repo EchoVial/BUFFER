@@ -18,13 +18,24 @@ Every reply ends in three buttons, worded as what they do (See my week, Mark wor
 
 ## What it runs on
 
-Next.js on Vercel. The brain is Claude (`claude-opus-5`, structured outputs) when `ANTHROPIC_API_KEY` is set in the Vercel project's environment variables. Without the key the app falls back to a regex parser, which handles the button payloads and the standard phrasings but nothing off script. The key is set in Vercel: Project > Settings > Environment Variables > `ANTHROPIC_API_KEY`, then redeploy.
+Next.js on Vercel. The brain is whichever model the environment points at, and the app is written so that an open model on a free tier is enough:
 
-With the key, Claude also reads the three setup answers (loose wording, several answers at once, side questions), writes the reply itself for chitchat, questions about Buffer or your schedule, greetings and anything it could not map to an action, adds a short opening clause to action replies when the message carried a mood or a detail, and picks up people mentioned in passing ("...and remind me to spend some time with my roommates too") into the nudge list.
+| Set this | Model | Where to get the key |
+| --- | --- | --- |
+| `GROQ_API_KEY` | Llama 3.3 70B on Groq (fast, free tier) | console.groq.com |
+| `GEMINI_API_KEY` | Gemma 3 27B on Google AI Studio (free tier; `LLM_MODEL=gemini-2.5-flash` for Gemini) | aistudio.google.com |
+| `OPENROUTER_API_KEY` | `google/gemma-3-27b-it:free` on OpenRouter | openrouter.ai |
+| `OLLAMA_MODEL=gemma3` | a local Ollama; only reachable from the machine running it, so for laptops and dev, not for Vercel | ollama.com |
+| `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL` | any OpenAI-compatible endpoint | |
+| `ANTHROPIC_API_KEY` | Claude | console.anthropic.com |
+
+Nothing set means the regex parser (`src/lib/nlp.ts`), which handles the button payloads and standard phrasings but nothing off script. Vercel cannot run a model itself (serverless functions have no GPU and a 250 MB limit), so a hosted endpoint is needed there; the free tiers above are enough for a demo. Keys go in Vercel: Project > Settings > Environment Variables, then redeploy. `src/lib/llm.ts` sends the same prompt and JSON schema to every provider and validates the answer with zod; a reply that does not fit falls back to the rules for that turn.
+
+With a model set, it also reads the three setup answers (loose wording, several answers at once, side questions), writes the reply itself for chitchat, questions about Buffer or your schedule, greetings and anything it could not map to an action, adds a short opening clause to action replies when the message carried a mood or a detail, and picks up people mentioned in passing ("...and remind me to spend some time with my roommates too") into the nudge list.
 
 ## How it understands you
 
-`src/lib/understand.ts` sends each message, with the user's timezone, settings, upcoming events, open to-dos, remembered facts and the last few messages, to Claude (`src/lib/llm.ts`, structured output) and gets back one typed action: intent, title, date, time, length, kind, or a single clarifying question with quick-reply buttons. The scheduler (`src/lib/scheduler.ts`, `src/lib/life.ts`) then does the calendar arithmetic deterministically. Set `ANTHROPIC_API_KEY`; without it the regex parser in `src/lib/nlp.ts` takes over, so the demo never breaks. Setup answers, button payloads and one-word commands (`undo`, `today`) are handled before either parser runs.
+`src/lib/understand.ts` sends each message, with the user's timezone, settings, upcoming events, open to-dos, remembered facts and the last few messages, to the model (`src/lib/llm.ts`, structured output) and gets back one typed action: intent, title, date, time, length, kind, or a single clarifying question with quick-reply buttons. The scheduler (`src/lib/scheduler.ts`, `src/lib/life.ts`) then does the calendar arithmetic deterministically. Without a model the regex parser in `src/lib/nlp.ts` takes over, so the demo never breaks. Setup answers, button payloads and one-word commands (`undo`, `today`) are handled before either parser runs.
 
 The evening nudge (`unwindNudge` in `src/lib/bot.ts`) fires from the client poll (`GET /api/chat`) once a day, in the 90 minutes after the switch-off time, only when nothing is on. On real WhatsApp this would be a scheduled job hitting the same function.
 
@@ -68,7 +79,7 @@ Standard Next.js App Router app. No custom build command.
    | --- | --- | --- |
    | `ADMIN_PASSWORD` | Yes on Vercel | Password for `/admin`. If this is missing on Vercel, `/admin` stays locked. |
    | `KV_REST_API_URL` + `KV_REST_API_TOKEN` | Optional | Vercel KV / Upstash so chats survive deploys. |
-   | `ANTHROPIC_API_KEY` | Recommended | Claude does the natural-language understanding. Without it Buffer uses the rule-based parser. |
+   | `GROQ_API_KEY` or `GEMINI_API_KEY` (or another provider, see "What it runs on") | Recommended | The model that does the natural-language understanding. Without one Buffer uses the rule-based parser. |
 
 5. Deploy. Chat: `https://your-project.vercel.app/chat`. Console: change the path to `/admin`.
 

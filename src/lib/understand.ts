@@ -1,23 +1,23 @@
 import { parseMessage, type Intent, type ParsedMessage } from "./nlp";
-import { understandSetupWithClaude, understandWithClaude, type SetupUnderstanding, type Understanding } from "./llm";
+import { modelLabel, understandSetupWithModel, understandWithModel, type SetupUnderstanding, type Understanding } from "./llm";
 import type { UserRecord } from "./types";
 
 /**
- * One entry point for "what did they mean": Claude first (natural language,
+ * One entry point for "what did they mean": the model first (natural language,
  * context, ambiguity, and the words to say back when someone goes off script),
  * the regex parser as the offline fallback and as the source of a few slots
  * Claude does not bother with (bullet lists, slang).
  */
 
-type Llm = typeof understandWithClaude;
-type SetupLlm = typeof understandSetupWithClaude;
-let llm: Llm = understandWithClaude;
-let setupLlm: SetupLlm = understandSetupWithClaude;
+type Llm = typeof understandWithModel;
+type SetupLlm = typeof understandSetupWithModel;
+let llm: Llm = understandWithModel;
+let setupLlm: SetupLlm = understandSetupWithModel;
 
-/** Swap the model call (tests, offline demos). Pass nothing to restore Claude. */
+/** Swap the model call (tests, offline demos). Pass nothing to restore the configured model. */
 export function setUnderstandingEngine(fn?: Llm, setupFn?: SetupLlm) {
-  llm = fn ?? understandWithClaude;
-  setupLlm = setupFn ?? understandSetupWithClaude;
+  llm = fn ?? understandWithModel;
+  setupLlm = setupFn ?? understandSetupWithModel;
 }
 
 export async function understand(raw: string, user: UserRecord): Promise<ParsedMessage> {
@@ -30,7 +30,7 @@ export async function understand(raw: string, user: UserRecord): Promise<ParsedM
   return merge(fallback, out);
 }
 
-/** The setup questions: Claude reads loose answers; null means "use the regexes". */
+/** The setup questions: the model reads loose answers; null means "use the regexes". */
 export async function understandSetup(step: "work" | "unwind" | "people", raw: string, user: UserRecord): Promise<SetupUnderstanding | null> {
   return setupLlm(step, raw, user);
 }
@@ -74,7 +74,7 @@ function merge(base: ParsedMessage, out: Understanding): ParsedMessage {
     lead: clean(out.lead),
     people: out.people?.map((p) => p.trim()).filter(Boolean),
     memoryNotes: out.memory_notes ?? undefined,
-    notes: [...base.notes, `engine: claude (${Math.round(out.confidence * 100)}%)`],
+    notes: [...base.notes, `engine: ${modelLabel()} (${Math.round((out.confidence ?? 0.6) * 100)}%)`],
     debug: {
       ...base.debug,
       intent,
@@ -86,7 +86,7 @@ function merge(base: ParsedMessage, out: Understanding): ParsedMessage {
         llmKind: out.kind ?? undefined,
         llmConfidence: out.confidence,
       },
-      notes: [...base.debug.notes, `claude intent ${intent}`, ...(out.reply ? [`reply: ${out.reply.slice(0, 80)}`] : [])],
+      notes: [...base.debug.notes, `model intent ${intent}`, ...(out.reply ? [`reply: ${out.reply.slice(0, 80)}`] : [])],
     },
   };
   // The regex parser is better at literal bullet lists; keep its items when Claude saw fewer.

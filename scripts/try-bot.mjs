@@ -1,6 +1,7 @@
 // Drive Buffer's brain from the terminal, no server needed.
 //   npx tsx scripts/try-bot.mjs "how's my week" "keep thursday evening free" ...
-// With ANTHROPIC_API_KEY set the Claude layer is used; otherwise the rule parser.
+// With a model configured (GROQ_API_KEY, GEMINI_API_KEY, OLLAMA_MODEL, LLM_BASE_URL or ANTHROPIC_API_KEY)
+// that model does the understanding; otherwise the rule parser.
 const { processTurn, welcomeIfEmpty } = await import("../src/lib/bot.ts");
 const { setUnderstandingEngine } = await import("../src/lib/understand.ts");
 // BUFFER_FAKE_LLM=path.json: a map of message -> Understanding (and "setup:<step>:<message>" -> SetupUnderstanding)
