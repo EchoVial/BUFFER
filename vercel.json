@@ -1,4 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "crons": [
+    { "path": "/api/whatsapp/tick", "schedule": "30 2 * * *" },
+    { "path": "/api/whatsapp/tick/evening", "schedule": "30 14 * * *" }
+  ]
 }

@@ -10,8 +10,10 @@ import {
   UserRecord,
 } from "./types";
 import { uid } from "./ids";
+import { disconnectGoogle, googleConfigured, googleConnectUrl } from "./google";
+import { siteOrigin } from "./calendar";
 import { understand, understandSetup } from "./understand";
-import { isStandingLanguage, parseRange, workLabelFor, type ParsedMessage } from "./nlp";
+import { isStandingLanguage, parseRange, workLabelFor, type ParsedMessage, exceptDaysIn } from "./nlp";
 import type { SetupUnderstanding } from "./llm";
 import { dayImage, describeWindow, freeLine, protectPayload, protectedEvent, slotName, standingWork, suggestForFreeTime, suggestionLine, suggestionPayload, weekImage, weekView, windowLabel } from "./life";
 import { findNamedItem } from "./match";
@@ -24,8 +26,7 @@ import {
   minutesToHM,
   nowInZone,
   prettyDate,
-  shortClock,
-} from "./time";
+  shortClock, describeDays, dayNumbersIn, WEEKDAYS } from "./time";
 
 type BotExtra = {
   card?: MessageCard;
@@ -36,7 +37,7 @@ type BotExtra = {
 
 const CARD_TYPES = new Set(["schedule", "proposal", "todos", "overlaps", "debug", "image"]);
 
-function botText(text: string, extra?: MessageCard | BotExtra): ChatMessage {
+export function botText(text: string, extra?: MessageCard | BotExtra): ChatMessage {
   const opts: BotExtra =
     extra && "type" in extra && CARD_TYPES.has(String((extra as MessageCard).type))
       ? { card: extra as MessageCard }
@@ -434,6 +435,31 @@ function eveningHM(hm: string): string {
   return m < 10 * 60 ? minutesToHM(m + 12 * 60) : hm;
 }
 
+/** Google writes straight in (when this Buffer has a Google client); Apple and the rest subscribe to the feed. */
+function calendarQuestion(): ChatMessage {
+  const buttons = [btn("cal-apple", "Apple Calendar", "connect apple"), btn("cal-skip", "Not now", "no calendar")];
+  if (googleConfigured()) buttons.unshift(btn("cal-google", "Google Calendar", "connect google"));
+  return botText("want the plans i save in your calendar too?", { buttons });
+}
+
+function ensureCalendarToken(next: UserRecord) {
+  if (!next.calendarToken) next.calendarToken = uid("cal");
+}
+
+/** The link for the calendar they picked, as words (WhatsApp cannot open webcal:// on its own, so the page does it). */
+function calendarLink(next: UserRecord, which: "google" | "apple"): ChatMessage {
+  const origin = siteOrigin();
+  if (which === "google" && googleConfigured()) {
+    return botText(`tap this, pick your google account, and allow calendar access. after that every plan i save appears there on its own.\n${googleConnectUrl(origin, next.id)}`);
+  }
+  ensureCalendarToken(next);
+  next.calendarConnectedAt = new Date().toISOString();
+  next.calendarConnectedVia = which === "google" ? "google-feed" : "apple";
+  const page = `${origin.replace(/\/$/, "")}/connect/${encodeURIComponent(next.calendarToken!)}`;
+  if (which === "google") return botText(`google can subscribe to my feed (it refreshes about daily):\n${page}`);
+  return botText(`open this on your iphone and tap *Subscribe*. new plans show up within the hour.\n${page}`);
+}
+
 function notifyQuestion(next: UserRecord): ChatMessage {
   const wa = onWhatsApp(next);
   return botText(wa ? "last one. a nudge here in the evening to call them, when you're free? once a day at most." : "last one. an evening nudge to call them, when you're free? once a day at most. your browser asks once.", {
@@ -458,10 +484,11 @@ function finishSetup(next: UserRecord): ChatMessage[] {
   const verb = people.length && people.slice(0, 2).some(isGroup) ? "about" : "to call";
   const view = weekView(next);
   const nudge = next.notify === false ? "no nudges. say *nudges on* if you change your mind." : `after ${after} on free days i'll nudge you once ${verb} ${who}.`;
+  const morning = next.morningOff ? "" : " every morning at 8 you get the day as a picture.";
   const legend = view.totalWork ? "your week. white is free, grey is work." : "your week. nothing marked as work yet, so it all looks free.";
   const tryLine = view.totalWork ? "try *dinner with sam fri 8pm* or *plan people time*." : "try *work 7 to 10pm today* or *class 9 to 5 every weekday*.";
   return [
-    botText(`${legend} ${nudge}\n\n${tryLine}${tip(next, "picture")}`, {
+    botText(`${legend} ${nudge}${morning}\n\n${tryLine}${tip(next, "picture")}`, {
       card: weekImage(view, next),
       buttons: view.totalWork ? [B.ideas, B.addWork, B.help] : [B.addWork, B.ideas, B.help],
     }),
@@ -479,10 +506,11 @@ function applySetup(next: UserRecord, a: SetupUnderstanding): ChatMessage[] {
     const have = new Set((next.people ?? []).map((n) => n.toLowerCase()));
     next.people = [...(next.people ?? []), ...a.people.map(cap).filter((n) => !have.has(n.toLowerCase()))].slice(0, 6);
   }
+  const later = step === "calendar" || step === "notify";
   const answered = {
     work: gotWork || step !== "work",
-    unwind: Boolean(a.unwind) || step === "people" || step === "notify",
-    people: Boolean(a.people?.length) || (step === "people" && a.skip) || step === "notify",
+    unwind: Boolean(a.unwind) || step === "people" || later,
+    people: Boolean(a.people?.length) || (step === "people" && a.skip) || later,
   };
   // Skipping the current question counts as answered.
   if (a.skip) {
@@ -502,8 +530,8 @@ function applySetup(next: UserRecord, a: SetupUnderstanding): ChatMessage[] {
     next.onboarding = "people";
     out.push(peopleQuestion());
   } else {
-    next.onboarding = "notify";
-    out.push(notifyQuestion(next));
+    next.onboarding = "calendar";
+    out.push(calendarQuestion());
   }
   return out;
 }
@@ -513,6 +541,18 @@ async function handleOnboarding(next: UserRecord, text: string): Promise<ChatMes
   const step = next.onboarding;
   const t = text.toLowerCase().trim();
   if (!step || step === "done") return null;
+  if (step === "calendar") {
+    const pick = /google/.test(t) ? "google" : /apple|iphone|ios|mac/.test(t) ? "apple" : null;
+    if (pick) {
+      next.onboarding = "notify";
+      return [calendarLink(next, pick), notifyQuestion(next)];
+    }
+    if (/^(no calendar|no|not now|skip|later|nah|nope|none)\b/.test(t)) {
+      next.onboarding = "notify";
+      return [notifyQuestion(next)];
+    }
+    return [botText("*Google Calendar*, *Apple Calendar*, or *Not now*.", { buttons: calendarQuestion().buttons })];
+  }
   if (step === "notify") {
     if (/^notifications on$/.test(t) || /\b(allow|allowed|yes|sure|ok|okay|go ahead)\b/.test(t)) {
       next.notify = true;
@@ -571,7 +611,8 @@ async function handleOnboarding(next: UserRecord, text: string): Promise<ChatMes
     next.people = people;
     next.onboarding = "notify";
     const list = people.length > 1 ? `${people.slice(0, -1).join(", ")} and ${people[people.length - 1]}` : people[0];
-    return [botText(people.length ? `${list}. got it.` : "no one for now. *nudge me to call mum* adds someone later."), notifyQuestion(next)];
+    next.onboarding = "calendar";
+    return [botText(people.length ? `${list}. got it.` : "no one for now. *nudge me to call mum* adds someone later."), calendarQuestion()];
   }
   return null;
 }
@@ -720,6 +761,48 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
         calendarEventId: ev.id,
       }),
     );
+    return done();
+  }
+  // "i said not friday", "except fridays", "mon to thu only": which days the standing hours fall on.
+  const standing = standingWork(next.settings);
+  const dayFix = lower.replace(/^(?:i said|i meant|sorry|no|nope|oops|wait)[,.!]?\s*/, "").replace(/[.!]+$/, "").trim();
+  const skipDays = dayFix.match(/^(?:not|no|except|excluding|minus|but not|without|skip|remove|drop)\s+(?:on\s+)?((?:(?:sun|mon|tue|wed|thu|fri|sat)[a-z]*s?)(?:(?:\s*,\s*|\s+and\s+|\s*&\s*|\s+or\s+)(?:sun|mon|tue|wed|thu|fri|sat)[a-z]*s?)*)(?:\s+(?:off|free|though|please))?$/);
+  const onlyDays = dayFix.match(/^(?:only |just )?((?:sun|mon|tue|wed|thu|fri|sat)[a-z]*\s*(?:to|-|through|thru|till|until)\s*(?:sun|mon|tue|wed|thu|fri|sat)[a-z]*)(?:\s+only)?$/);
+  if (standing && (skipDays || onlyDays)) {
+    const days = skipDays ? (next.settings.workDays ?? WEEKDAYS).filter((d) => !dayNumbersIn(skipDays[1]).includes(d)) : dayNumbersIn(onlyDays![1]);
+    next.settings = { ...next.settings, workDays: days };
+    const label = (next.settings.workLabel || "work").toLowerCase();
+    push(botText(`${label} ${span(minutesToHM(standing.start), standing.end - standing.start)}, ${describeDays(days)}. got it.`, { buttons: [B.week, B.ideas] }));
+    return done();
+  }
+  if (/^(?:disconnect|unlink|forget|remove) (?:my )?(?:google|gcal|google calendar)$/.test(lower)) {
+    const had = Boolean(next.google);
+    Object.assign(next, disconnectGoogle(next));
+    delete next.google;
+    delete next.googleSynced;
+    push(botText(had ? "google calendar disconnected. what i already put there stays; nothing new goes in." : "google calendar wasn't connected."));
+    return done();
+  }
+  if (/^(?:connect|link|sync|set ?up) (?:my |to |with )?(?:google|gcal|google calendar)$|^connect google$/.test(lower)) {
+    push(calendarLink(next, "google"));
+    return done();
+  }
+  if (/^(?:connect|link|sync|set ?up) (?:my |to |with )?(?:apple|iphone|ios|apple calendar|icloud)(?: calendar)?$|^connect apple$/.test(lower)) {
+    push(calendarLink(next, "apple"));
+    return done();
+  }
+  if (/^(?:connect|link|sync) (?:my |a )?calendar$/.test(lower) && onWhatsApp(next)) {
+    push(calendarQuestion());
+    return done();
+  }
+  if (/^(?:no|stop|turn off|skip) (?:the )?morning (?:picture|pictures|snapshot|digest|message|messages)$/.test(lower)) {
+    next.morningOff = true;
+    push(botText("ok, no morning picture. *morning picture on* brings it back."));
+    return done();
+  }
+  if (/^morning (?:picture|pictures|snapshot|digest) on$/.test(lower)) {
+    next.morningOff = false;
+    push(botText("morning picture is back, 8 am."));
     return done();
   }
   if (/^notifications (on|off)$/.test(lower)) {
@@ -871,17 +954,22 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
   } else if (parsed.intent === "set_pref") {
     if (parsed.prefs.protectEveningsAfter) parsed.prefs.protectEveningsAfter = eveningHM(parsed.prefs.protectEveningsAfter);
     if (parsed.prefs.noWorkAfter) parsed.prefs.noWorkAfter = eveningHM(parsed.prefs.noWorkAfter);
-    next.settings = { ...next.settings, ...parsed.prefs };
-    if (next.draft.type === "event" && parsed.prefs.workStart) next.draft = { type: "none", missing: [] };
-    const p = parsed.prefs;
+    // Only what actually changed gets said; the model sometimes echoes settings that were already so.
+    const before = next.settings;
+    const p = Object.fromEntries(Object.entries(parsed.prefs).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(before[k as keyof typeof before]))) as typeof parsed.prefs;
+    // "except fridays" in the same breath as the hours applies to the hours, not to the old days.
+    if (p.workDays && !p.workStart && !before.workDays && exceptDaysIn(parsed.normalized)) p.workDays = WEEKDAYS.filter((d) => !exceptDaysIn(parsed.normalized)!.days.includes(d));
+    next.settings = { ...next.settings, ...p };
+    if (next.draft.type === "event" && p.workStart) next.draft = { type: "none", missing: [] };
     const bits: string[] = [];
-    if (p.workStart && p.workEnd) bits.push(`${(p.workLabel || next.settings.workLabel || "work").toLowerCase()} ${span(p.workStart, hmToMinutes(p.workEnd) - hmToMinutes(p.workStart))} every weekday, and i'll show it on each day`);
+    const hours = standingWork(next.settings);
+    if ((p.workStart || p.workEnd || p.workDays) && hours) bits.push(`${(next.settings.workLabel || "work").toLowerCase()} ${span(minutesToHM(hours.start), hours.end - hours.start)}, ${describeDays(next.settings.workDays)}`);
     if (p.protectEveningsAfter || p.noWorkAfter) bits.push(`after ${clockShort(p.protectEveningsAfter || p.noWorkAfter!)} the day is yours`);
-    if (p.socialMinutesPerDay !== undefined) bits.push(p.socialMinutesPerDay ? `${durationLabel(p.socialMinutesPerDay)} a day kept for people` : "no daily people block");
-    if (p.maxWorkMinutesPerDay) bits.push(`no more than ${durationLabel(p.maxWorkMinutesPerDay)} of work a day`);
+    if (p.socialMinutesPerDay !== undefined) bits.push(p.socialMinutesPerDay ? `${durationLabel(p.socialMinutesPerDay)} a day for people` : "no daily people block");
+    if (p.maxWorkMinutesPerDay) bits.push(`max ${durationLabel(p.maxWorkMinutesPerDay)} of work a day`);
     if (p.wakeTime) bits.push(`up at ${clockShort(p.wakeTime)}`);
     if (p.sleepTime) bits.push(`asleep by ${clockShort(p.sleepTime)}`);
-    push(botText(bits.length ? `got it: ${bits.join(", ")}.` : "ok, noted.", { card: p.workStart ? dayPicture(next, todayISO) : undefined, buttons: [B.week, B.today] }));
+    push(botText(bits.length ? `${bits.join(", ")}. got it.` : "already set that way.", { buttons: [B.week, B.ideas] }));
   } else if (parsed.intent === "calendar") {
     // A mis-read "add it to gcal" may have opened a junk draft; drop it.
     if (next.draft.type === "event" && (!next.draft.event?.start || /gcal|calendar/i.test(next.draft.event?.title ?? ""))) next.draft = { type: "none", missing: [] };
@@ -1021,7 +1109,7 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     const label = workLabelFor(parsed.normalized) === "Work" ? next.settings.workLabel || "Work" : workLabelFor(parsed.normalized);
     next.settings = { ...next.settings, workStart: start, workEnd: minutesToHM((hmToMinutes(start) + minutes) % (24 * 60)), workLabel: label };
     next.draft = { type: "none", missing: [] };
-    push(botText(`got it: ${label.toLowerCase()} ${span(start, minutes)} every weekday. i'll show it on each day, and weekday evenings and weekends count as free.`, { card: dayPicture(next, todayISO), buttons: [B.week, B.today] }));
+    push(botText(`${label.toLowerCase()} ${span(start, minutes)}, ${describeDays(next.settings.workDays)}. got it.`, { buttons: [B.week, B.ideas] }));
   } else if (next.draft.type === "event" && (parsed.intent === "add_event" || parsed.intent === "unknown" || hasSlots)) {
     next.draft = applyEventPatch(next.draft, parsed);
     if (next.draft.missing.length) {
@@ -1069,11 +1157,11 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     const backOn = /\b(back on|is on|not off|after all|back to normal)\b/.test(parsed.normalized);
     if (backOn) {
       next.daysOff = (next.daysOff ?? []).filter((d) => d !== date);
-      push(botText(`ok, ${label} is back on ${dayWordFor(date, tz)}.`, { card: dayPicture(next, date), buttons: [B.today, B.week] }));
+      push(botText(`ok, ${label} is back on ${dayWordFor(date, tz)}.`, { buttons: [B.today, B.week] }));
     } else {
       if (!next.daysOff?.includes(date)) next.daysOff = [...(next.daysOff ?? []), date].slice(-30);
       const plan = buildDayPlan(next, date);
-      push(botText(`ok, no ${label} ${dayWordFor(date, tz)}. ${freeLine(plan, next)}`, { card: dayPicture(next, date), buttons: [B.ideas, B.today, B.week] }));
+      push(botText(`ok, no ${label} ${dayWordFor(date, tz)}. ${freeLine(plan, next)}`, { buttons: [B.ideas, B.today, B.week] }));
     }
   } else if (parsed.intent === "schedule") {
     const date = parsed.event.date || todayISO;
@@ -1167,7 +1255,9 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
   // A tailored opening line and any people picked up along the way, on the first reply.
   if (replies.length) {
     const first = replies[0];
-    const lead = parsed.lead && parsed.intent !== "chitchat" && parsed.intent !== "question" && parsed.intent !== "greet" && parsed.intent !== "unknown" && parsed.intent !== "clarify" ? `${parsed.lead.replace(/\s+$/, "")} ` : "";
+    const ack = /^(got it|ok|okay|sure|done|noted|alright|right|cool|yep|yes|my bad|sorry|understood|will do)\b[^a-z]*$/i;
+    const echo = parsed.lead && first.text.toLowerCase().startsWith(parsed.lead.toLowerCase().split(/\s+/)[0]);
+    const lead = parsed.lead && !ack.test(parsed.lead) && !echo && parsed.intent !== "chitchat" && parsed.intent !== "question" && parsed.intent !== "greet" && parsed.intent !== "unknown" && parsed.intent !== "clarify" ? `${parsed.lead.replace(/\s+$/, "")} ` : "";
     replies[0] = { ...first, text: `${lead}${first.text}${peopleLine}` };
   }
 
@@ -1238,28 +1328,22 @@ function rememberNotes(existing: string | undefined, fresh: string[] | undefined
 }
 
 /**
- * Once a day after wake time: where the free time is this week and one offer
- * to keep some of it. Only when setup is done and there is something to say.
+ * 8 am, once a day: today as a picture and one line about the open time.
+ * Only when setup is done; nothing between noon and the next morning.
  */
 export function dailyDigest(user: UserRecord): { message?: ChatMessage; patch?: Partial<UserRecord> } {
   if (user.onboarding && user.onboarding !== "done") return {};
+  if (user.morningOff) return {};
   const now = nowInZone(user.settings.timezone);
   const today = dateISO(now);
   if (user.lastDigestDate === today) return {};
   const minutesNow = now.getHours() * 60 + now.getMinutes();
-  if (minutesNow < hmToMinutes(user.settings.wakeTime || "07:00") + 30) return {};
-  if (!user.events.length && !standingWork(user.settings)) return {};
-  const view = weekView(user);
-  const best = view.best[0];
-  const text = best
-    ? `morning. your biggest open stretch this week is ${windowLabel(best)}. want me to reserve it for you?`
-    : "morning. the next 7 days are wall to wall. say *reserve an evening* and i'll carve one out.";
+  if (minutesNow < 8 * 60 || minutesNow >= 12 * 60) return {};
+  const plan = buildDayPlan(user, today);
+  const busy = plan.blocks.some((b) => b.kind !== "free" && b.kind !== "sleep");
+  const text = busy ? `morning. ${freeLine(plan, user)}` : "morning. nothing on today yet.";
   return {
-    message: botText(text, {
-      buttons: best
-        ? [btn("keep", "Reserve that slot", protectPayload(best, user.settings.timezone, "me")), B.week, B.today]
-        : [btn("keep", "Reserve an evening", "reserve an evening this week"), B.week, B.today],
-    }),
+    message: botText(text, { card: dayPicture(user, today), buttons: busy ? [B.ideas, B.week] : [B.addWork, B.ideas] }),
     patch: { lastDigestDate: today },
   };
 }

@@ -95,6 +95,10 @@ export const UnderstandingSchema = z.object({
       workStart: z.string().nullable(),
       workEnd: z.string().nullable(),
       workLabel: z.string().nullable().describe("What to call the standing weekday block: 'Class' for students, 'Shift', else 'Work'."),
+      workDays: z
+        .array(z.number().int().min(0).max(6))
+        .nullable()
+        .describe("Days the standing hours fall on, 0=Sunday..6=Saturday, only when they say which: 'except fridays' or 'not friday' -> [1,2,3,4]; 'mon to thu' -> [1,2,3,4]; 'i have class on saturdays too' -> [1,2,3,4,5,6]. Null when days are not mentioned."),
       noWorkAfter: z.string().nullable(),
       protectEveningsAfter: z.string().nullable(),
     })
@@ -433,8 +437,9 @@ const FEATURES = `What Buffer can do (answer questions about itself from this, n
 - "reserve friday evening" puts a block called "Reserved for you" on the calendar so nothing else gets planned there.
 - "plan people time" finds a slot this week for each person you named (a call for a person, an evening for a group) and puts the one you tap on your calendar. This is the point of Buffer: work goes in so the people time can be planned around it.
 - Once a day, in the 90 minutes after your switch-off time, if nothing is on, it nudges you to call one of your people ("nudge me to call mum" adds someone; "who do i call" lists them; "nudges off" stops them). On WhatsApp the nudge is a message; in the web chat it can also be a browser notification.
-- Getting things into a real calendar: "add to gcal" gives an Add to Google Cal button that opens Google Calendar with the event filled in (the person taps Save there; Buffer cannot write into Google without them signing in). "connect calendar" gives a private live feed to subscribe to in Google, Apple, Android or Outlook, but those apps only refresh subscribed feeds every few hours, so it is for the long run, not for right now.
-- Standing work or class hours ("every weekday 9 to 5") repeat on weekdays automatically; "no class tomorrow" or "off friday" clears them for that day. Other plans do not repeat yet; each one is added on its day.
+- Getting things into a real calendar: "connect google" links Google Calendar once (a consent link); after that every plan Buffer saves is added, moved and removed there automatically. "connect apple" (or "connect calendar") gives a page to subscribe Apple Calendar or others to Buffer's feed; Apple refreshes about hourly. "disconnect google" revokes it. "add to gcal" still works for a one-off: it opens Google Calendar with the event filled in.
+- Every morning at 8 it sends today as a picture with one line about the open time ("no morning picture" stops it, "morning picture on" restores it).
+- Standing work or class hours ("every weekday 9 to 5") repeat automatically, Monday to Friday unless told which days ("except fridays", "mon to thu"); "no class tomorrow" or "off friday" clears them for that one day. Other plans do not repeat yet; each one is added on its day.
 - It does not read your existing calendar yet, does not send messages to other people, and has no voice or photo input yet.`;
 
 const SYSTEM = `You are the understanding layer of Buffer, a WhatsApp assistant for students and young professionals. You only ever output one JSON object.
@@ -450,7 +455,7 @@ You receive one message plus context (date/time in the user's timezone, their se
 Intent guide:
 - add_event: a block with a time ("gym tmrw 7pm", "dinner w sam fri", "call mum sunday"). Social = with people. If the user is mid-draft (draft present) and sends just a time or a length, still use add_event and fill only the new slot.
 - WORK ON A DAY IS AN EVENT: "work 7 to 10pm today", "i have work from 7pm-10pm today, mark it", "shift tomorrow 9 to 5", "working till 8 tonight" = add_event, kind work, title "Work" (or "Class"), start = range start, duration_minutes = range length. If no day is named, date = today.
-- REPEATING WORK IS A PREFERENCE: "every weekday from 9am to 5pm i have class, mark that", "i usually work 9 to 6", "my hours are 9 to 6", "mon to fri 10 to 7", "all weekdays" as an answer about a range = set_pref with prefs.workStart, prefs.workEnd and prefs.workLabel ("Class", "Shift" or "Work"). Buffer then shows that block on every weekday. Only work/class/shift repeats this way; other repeating plans ("gym every day") are not supported yet: use question and say so, offering to add the next one.
+- REPEATING WORK IS A PREFERENCE: "every weekday from 9am to 5pm i have class, mark that", "i usually work 9 to 6", "my hours are 9 to 6", "mon to fri 10 to 7", "all weekdays" as an answer about a range = set_pref with prefs.workStart, prefs.workEnd and prefs.workLabel ("Class", "Shift" or "Work"). Buffer then shows that block on those days (Monday to Friday unless prefs.workDays says otherwise). "9 to 5 every weekday except fridays" = set_pref with workStart, workEnd AND workDays [1,2,3,4]. A correction right after ("i said not friday", "no, not on fridays", "mon to thu only") = set_pref with ONLY workDays; do not repeat the hours and do not invent any other pref. Never fill prefs the person did not state. Only work/class/shift repeats this way; other repeating plans ("gym every day") are not supported yet: use question and say so, offering to add the next one.
 - A range like "7 to 10pm" gives both start and duration_minutes (180). "9 to 6" means 9am to 6pm.
 - add_todo: something to do without a fixed time ("remind me to send the deck", bullet lists, "need to renew passport").
 - complete_todo: they finished something ("done with the deck").

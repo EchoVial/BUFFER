@@ -18,6 +18,8 @@ export interface UserSettings {
   noWorkAfter: string | null;
   /** What the standing weekday block is called on the day picture: "Work", "Class", "Shift". */
   workLabel?: string;
+  /** Which days the standing hours fall on, 0 = Sunday .. 6 = Saturday. Unset means Monday to Friday. */
+  workDays?: number[];
 }
 
 export interface CalendarEvent {
@@ -200,8 +202,14 @@ export interface UserRecord {
   notes?: string;
   /** Date (YYYY-MM-DD, user tz) of the last morning digest, so it goes out once a day. */
   lastDigestDate?: string;
-  /** First-run questions: work hours, unwind time, who to call, nudges allowed. Missing = done (older users). */
-  onboarding?: "work" | "unwind" | "people" | "notify" | "done";
+  /** First-run questions: work hours, unwind time, who to call, calendar, nudges allowed. Missing = done (older users). */
+  onboarding?: "work" | "unwind" | "people" | "calendar" | "notify" | "done";
+  /** They said "no morning picture": skip the 8 am snapshot of the day. */
+  morningOff?: boolean;
+  /** Google Calendar, connected through OAuth; every saved event is mirrored there. */
+  google?: { refreshToken: string; email?: string; connectedAt: string };
+  /** Our event id -> the Google event it became, with a fingerprint to spot edits. */
+  googleSynced?: Record<string, { gid: string; hash: string }>;
   /** They allowed browser notifications for the evening nudge. */
   notify?: boolean;
   /** People Buffer nudges them to call when they are free (from onboarding or chat). */

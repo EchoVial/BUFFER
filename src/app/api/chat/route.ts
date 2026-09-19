@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserById, mergeIncomingUser, upsertUser } from "@/lib/store";
 import { processTurn } from "@/lib/bot";
+import { saveTurn } from "@/lib/afterturn";
 import { proactive } from "@/lib/proactive";
 import type { UserRecord } from "@/lib/types";
 
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Empty message." }, { status: 400 });
   }
   const result = await processTurn(user, text);
-  const saved = await upsertUser(result.user);
+  const saved = await saveTurn(result.user);
   return NextResponse.json({ user: saved, replies: result.replies });
 }
 

@@ -65,7 +65,7 @@ function merge(base: ParsedMessage, out: Understanding): ParsedMessage {
       kind: out.kind ?? base.todo.kind,
       doneHint: clean(out.target) ?? base.todo.doneHint,
     },
-    prefs: out.prefs ? Object.fromEntries(Object.entries(out.prefs).filter(([, v]) => v !== null && v !== undefined)) : base.prefs,
+    prefs: out.prefs ? { ...base.prefs, ...Object.fromEntries(Object.entries(out.prefs).filter(([, v]) => v !== null && v !== undefined)) } : base.prefs,
     renameTo: clean(out.rename_to) ?? base.renameTo,
     targetHint: clean(out.target) ?? base.targetHint,
     question: clean(out.question) ?? (intent === "clarify" ? clean(out.reply) : undefined),

@@ -9,6 +9,7 @@ import {
   durationLabel,
   formatClock,
   hmToMinutes,
+  isStandingDay,
   isWeekend,
   minutesToHM,
   prettyDate,
@@ -110,7 +111,7 @@ export function buildDayPlan(user: UserRecord, date: string): DayPlan {
   const standingEnd = hmToMinutes(s.workEnd);
   const overlapsStanding = dayEvents.some((e) => e.kind === "work" && hmToMinutes(e.start) < standingEnd && hmToMinutes(e.start) + e.durationMinutes > standingStart);
   const dayOff = user.daysOff?.includes(date) ?? false;
-  if (standingEnd > standingStart && !isWeekend(date) && !overlapsStanding && !dayOff) {
+  if (standingEnd > standingStart && isStandingDay(s.workDays, date) && !overlapsStanding && !dayOff) {
     eventBlocks.push({
       startMin: standingStart,
       endMin: standingEnd,

@@ -44,6 +44,17 @@ The same brain answers on real WhatsApp through Meta's Cloud API, using the free
 
 Setup, in order: (1) a database, because WhatsApp users must survive server restarts: Vercel project > Storage > Create Database > Upstash Redis (free), then redeploy. (2) developers.facebook.com > Create app (type Business) > add the WhatsApp product > API Setup: copy the **Phone number ID** and a token, and add your own number under "To" (Meta sends a code to your WhatsApp). (3) In Vercel add `WA_PHONE_ID`, `WA_TOKEN`, `WA_VERIFY_TOKEN`, redeploy. (4) Meta > WhatsApp > Configuration: callback URL `https://<your-app>/api/whatsapp`, your verify token, subscribe to `messages`. (5) Message the test number from your phone. The temporary token expires after 24 hours; for a permanent one create a System User in Meta Business Settings with `whatsapp_business_messaging` and `whatsapp_business_management`.
 
+## Calendars
+
+Two ways in, both chosen during setup or later with *connect google* / *connect apple*:
+
+- **Google Calendar, written to directly.** `src/lib/google.ts` runs OAuth (offline access, scope `calendar.events` only). `/api/google/connect?u=<user>&s=<sig>` is the link the bot hands out, `/api/google/callback` stores the refresh token, and `saveTurn` (`src/lib/afterturn.ts`) mirrors every saved event after each turn: insert, patch on change, delete on undo. Needs `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` from a Google Cloud OAuth client (Web application) with `https://<your-app>/api/google/callback` as a redirect URI and the Google Calendar API enabled. Without them the Google option simply does not appear.
+- **A private feed** for Apple Calendar, Outlook and Google-by-subscription: `/connect/<token>` is a one-tap page (WhatsApp cannot open `webcal://` links itself) that subscribes the app to `/api/calendar/<token>/feed.ics`.
+
+## Scheduling
+
+`GET /api/whatsapp/tick` sends whatever is due. `vercel.json` runs it twice a day on Vercel's free cron (02:30 UTC = 8 am IST for the morning picture, 14:30 UTC = 8 pm IST for the evening nudge). For everyone whose day is not on Indian time, `docs/tick-workflow.yml` is a GitHub Action that hits it every 15 minutes; move it to `.github/workflows/` once the pushing token has the `workflow` scope.
+
 ## How it understands you
 
 `src/lib/understand.ts` sends each message, with the user's timezone, settings, upcoming events, open to-dos, remembered facts and the last few messages, to the model (`src/lib/llm.ts`, structured output) and gets back one typed action: intent, title, date, time, length, kind, or a single clarifying question with quick-reply buttons. The scheduler (`src/lib/scheduler.ts`, `src/lib/life.ts`) then does the calendar arithmetic deterministically. Without a model the regex parser in `src/lib/nlp.ts` takes over, so the demo never breaks. Setup answers, button payloads and one-word commands (`undo`, `today`) are handled before either parser runs.

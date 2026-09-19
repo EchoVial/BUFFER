@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { beginChat, processTurn } from "@/lib/bot";
 import { createWhatsAppUser, deleteUser, getUserByPhone, refreshStore, upsertUser, withLock } from "@/lib/store";
+import { saveTurn } from "@/lib/afterturn";
 import { originFromRequest } from "@/lib/calendar";
 import { deliver, incomingText, markRead, sendContact, sendText, timezoneForPhone, waConfigured, type WaWebhook } from "@/lib/wa";
 
@@ -88,7 +89,7 @@ async function handle(message: WaMessage, profileName: string | undefined, origi
     if (!text || /^(hi|hello|hey|hii|start|yo|namaste)\b/i.test(text)) return;
     // They opened with something real ("9 to 5"); treat it as the first answer.
     const turn = await processTurn(user, text);
-    user = await upsertUser({ ...turn.user, waSeen: [...(turn.user.waSeen ?? []), message.id].slice(-30) });
+    user = await saveTurn({ ...turn.user, waSeen: [...(turn.user.waSeen ?? []), message.id].slice(-30) });
     await sendAll(user, turn.replies, origin);
     return;
   }
@@ -105,6 +106,6 @@ async function handle(message: WaMessage, profileName: string | undefined, origi
     return;
   }
   const turn = await processTurn(user, text);
-  const saved = await upsertUser({ ...turn.user, waSeen: [...(turn.user.waSeen ?? []), message.id].slice(-30) });
+  const saved = await saveTurn({ ...turn.user, waSeen: [...(turn.user.waSeen ?? []), message.id].slice(-30) });
   await sendAll(saved, turn.replies, origin);
 }

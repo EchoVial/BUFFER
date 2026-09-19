@@ -48,8 +48,9 @@ export default function PrivacyPage() {
           message, and Buffer&apos;s replies go back the same way.
         </li>
         <li>
-          <strong>Calendars</strong>: only if you choose to. &quot;Add to Google Cal&quot; opens Google Calendar with the event filled in for you to save; &quot;Connect
-          live feed&quot; gives you a private link that your calendar app fetches. Buffer never reads your existing calendar.
+          <strong>Calendars</strong>: only if you choose to. If you connect Google Calendar, Buffer keeps a Google token that lets it add, change and remove
+          the events it saved for you (scope: calendar events only) and nothing else; say <strong>disconnect google</strong> to revoke it. Apple Calendar and
+          others subscribe to a private feed link. Buffer never reads your existing calendar.
         </li>
       </ul>
 

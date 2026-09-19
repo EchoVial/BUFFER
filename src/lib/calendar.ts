@@ -147,6 +147,13 @@ export function userFeedIcs(user: Pick<UserRecord, "name" | "settings" | "events
   ].join("\r\n");
 }
 
+/** Where this Buffer lives, for links the bot writes into messages (no request to read a host from). */
+export function siteOrigin(): string {
+  const env = process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+  if (env) return env.startsWith("http") ? env : `https://${env}`;
+  return "http://127.0.0.1:43177";
+}
+
 export function originFromRequest(req: { headers: Headers; nextUrl?: URL }): string {
   const proto = req.headers.get("x-forwarded-proto");
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host");

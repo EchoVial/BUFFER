@@ -1,5 +1,5 @@
 import { CalendarEvent, EventKind, NlpDebug, TodoPriority, UserRecord } from "./types";
-import { addDaysISO, dateISO, hmToMinutes, minutesToHM, nowInZone, weekdayIndex } from "./time";
+import { addDaysISO, dateISO, hmToMinutes, minutesToHM, nowInZone, weekdayIndex, dayNumbersIn, WEEKDAYS as MON_TO_FRI } from "./time";
 import { findNamedItem, hintFromText } from "./match";
 
 export type Intent =
@@ -54,6 +54,7 @@ export interface ParsedMessage {
     workStart: string;
     workEnd: string;
     workLabel: string;
+    workDays: number[];
     noWorkAfter: string | null;
     protectEveningsAfter: string;
   }>;
@@ -292,7 +293,20 @@ export function hasDayWord(text: string): boolean {
 
 /** Talks about the usual shape of their days rather than one day. */
 export function isStandingLanguage(text: string): boolean {
-  return /\b(usually|normally|typically|generally|every ?day|daily|each day|every weekday|each weekday|all weekdays|weekdays|on weekdays|most days|mon(?:day)? (?:to|-|through|till|until) fri(?:day)?|my (?:work |working |class )?hours|work hours|working hours|class hours|i work|my job is|my shift|my timetable|my schedule is)\b/.test(text);
+  return (
+    /\b(usually|normally|typically|generally|every ?day|daily|each day|every weekday|each weekday|all weekdays|weekdays|on weekdays|most days|my (?:work |working |class )?hours|work hours|working hours|class hours|i work|my job is|my shift|my timetable|my schedule is)\b/.test(text) ||
+    // "mon to thu", "monday through friday": a span of days is a routine, not one day
+    /\b(sun|mon|tue|wed|thu|fri|sat)[a-z]*\s*(?:to|-|through|thru|till|until)\s*(sun|mon|tue|wed|thu|fri|sat)[a-z]*\b/.test(text) ||
+    // plural day names ("fridays", "on mondays") talk about every such day
+    /\b(sundays|mondays|tuesdays|wednesdays|thursdays|fridays|saturdays)\b/.test(text)
+  );
+}
+
+/** "except fridays", "but not on wednesday", "minus fri and sat": the days a routine skips. */
+export function exceptDaysIn(text: string): { days: number[]; rest: string } | null {
+  const m = text.match(/\b(?:except|excluding|but not|not on|minus|apart from|other than|besides)\s+(?:on\s+)?((?:(?:sun|mon|tue|wed|thu|fri|sat)[a-z]*s?)(?:(?:\s*,\s*|\s+and\s+|\s*&\s*|\s+or\s+)(?:sun|mon|tue|wed|thu|fri|sat)[a-z]*s?)*)/);
+  if (!m) return null;
+  return { days: dayNumbersIn(m[1]), rest: text.replace(m[0], " ").replace(/\s+/g, " ").trim() };
 }
 
 function parseDuration(text: string): number | undefined {
@@ -506,13 +520,36 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
   const normalized = normalize(raw);
   const tz = user.settings.timezone || "UTC";
   const range = parseRange(normalized);
-  const dayNamed = hasDayWord(normalized);
+  // "every weekday except fridays": the skipped days do not make it a one-day message.
+  const except = exceptDaysIn(normalized);
+  const daySpan = dayNumbersIn(normalized);
+  const spansDays = /\b(sun|mon|tue|wed|thu|fri|sat)[a-z]*\s*(?:to|-|through|thru|till|until)\s*(sun|mon|tue|wed|thu|fri|sat)[a-z]*\b/.test(normalized);
+  const dayNamed = hasDayWord(except ? except.rest : normalized) && !spansDays && !/\b(sundays|mondays|tuesdays|wednesdays|thursdays|fridays|saturdays)\b/.test(normalized);
   const standingWork = isStandingLanguage(normalized) && !dayNamed;
   const prefs = parsePrefs(normalized, notes, standingWork);
   if (standingWork && range && !prefs.workStart) {
     prefs.workStart = range.start;
     prefs.workEnd = range.end;
     notes.push(`standing hours ${range.start}-${range.end}`);
+  }
+  // "fridays off", "no class on fridays": plural, so the routine skips that day; "off friday" stays one date.
+  const offDays = normalized.match(/\b(?:no (?:class|classes|work|shift|shifts|lectures?)\s+(?:on\s+)?|off (?:on\s+)?)((?:sun|mon|tue|wed|thu|fri|sat)[a-z]*s(?:(?:\s*,\s*|\s+and\s+|\s*&\s*|\s+or\s+)(?:sun|mon|tue|wed|thu|fri|sat)[a-z]*s)*)\b/) ||
+    normalized.match(/\b((?:sun|mon|tue|wed|thu|fri|sat)[a-z]*s(?:(?:\s*,\s*|\s+and\s+|\s*&\s*|\s+or\s+)(?:sun|mon|tue|wed|thu|fri|sat)[a-z]*s)*)\s+(?:off|free)\b/);
+  const pluralDays = /\b(sundays|mondays|tuesdays|wednesdays|thursdays|fridays|saturdays)\b/.test(normalized);
+  if (standingWork && except?.days.length) {
+    prefs.workDays = (user.settings.workDays ?? MON_TO_FRI).filter((d) => !except.days.includes(d));
+    notes.push(`skips ${except.days.join(",")}`);
+  } else if (offDays) {
+    const skip = dayNumbersIn(offDays[1]);
+    prefs.workDays = (user.settings.workDays ?? MON_TO_FRI).filter((d) => !skip.includes(d));
+    notes.push(`skips ${skip.join(",")}`);
+  } else if (standingWork && spansDays && daySpan.length) {
+    prefs.workDays = daySpan;
+    notes.push(`days ${daySpan.join(",")}`);
+  } else if (standingWork && pluralDays && daySpan.length && (range || prefs.workStart)) {
+    // "class 10 to 4 mondays and wednesdays": the hours fall on exactly those days
+    prefs.workDays = daySpan;
+    notes.push(`days ${daySpan.join(",")}`);
   }
   if (prefs.workStart) prefs.workLabel = workLabelFor(normalized);
   const { date, note: dateNote } = parseDate(normalized, tz);
@@ -557,9 +594,10 @@ export function parseMessage(raw: string, user: UserRecord): ParsedMessage {
   else if (confirm) intent = "confirm";
   else if (cancel) intent = "cancel";
   else if (
-    (/\b(no (?:work|class|classes|shift|uni|college|school|lectures?|office)|day off|off work|off today|off tomorrow|off on|holiday|on leave|bank holiday|classes? (?:are|is) cancelled|cancelled classes?)\b/.test(normalized) ||
+    (/\b(no (?:work|class|classes|shift|uni|college|school|lectures?|office)|day off|off work|off today|off tomorrow|off on|off (?:this |next )?(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tue|tues|wed|thu|thur|thurs|fri|sat)|holiday|on leave|bank holiday|classes? (?:are|is) cancelled|cancelled classes?)\b/.test(normalized) ||
       /\b(?:class|classes|work|shift|uni|college|school) (?:is|are) (?:back )?on\b|\bback to normal\b|\bnot off\b/.test(normalized)) &&
-    !/\bafter\b/.test(normalized)
+    !/\bafter\b/.test(normalized) &&
+    !prefs.workDays // "no class on fridays" is every friday, handled as a preference
   ) {
     intent = "day_off";
   }
