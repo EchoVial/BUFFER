@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserById, mergeIncomingUser, upsertUser } from "@/lib/store";
+import { getUserById, mergeIncomingUser } from "@/lib/store";
 import { processTurn } from "@/lib/bot";
 import { saveTurn } from "@/lib/afterturn";
 import { proactive } from "@/lib/proactive";

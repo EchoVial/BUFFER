@@ -251,6 +251,13 @@ export function incomingText(message: WaMessage): string | null {
     return r?.id?.trim() || r?.title?.trim() || null;
   }
   if (message.type === "button") return message.button?.payload?.trim() || message.button?.text?.trim() || null;
+  if (message.type === "contacts") {
+    // A shared contact: "contact card: Mum 919876543210". The bot files the number under that person.
+    const c = message.contacts?.[0];
+    const digits = (c?.phones?.[0]?.wa_id || c?.phones?.[0]?.phone || "").replace(/\D/g, "");
+    const name = (c?.name?.formatted_name || c?.name?.first_name || "").trim();
+    if (digits && name) return `contact card: ${name} ${digits}`;
+  }
   return null;
 }
 
@@ -262,6 +269,7 @@ export interface WaMessage {
   text?: { body?: string };
   button?: { payload?: string; text?: string };
   interactive?: { type?: string; button_reply?: { id?: string; title?: string }; list_reply?: { id?: string; title?: string } };
+  contacts?: Array<{ name?: { formatted_name?: string; first_name?: string }; phones?: Array<{ phone?: string; wa_id?: string }> }>;
 }
 
 export interface WaWebhook {

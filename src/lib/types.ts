@@ -218,6 +218,10 @@ export interface UserRecord {
   notify?: boolean;
   /** People Buffer nudges them to call when they are free (from onboarding or chat). */
   people?: string[];
+  /** Lowercase name -> last day (YYYY-MM-DD) they were in touch, from "called mum" and the like. Saved social plans count too. */
+  lastContact?: Record<string, string>;
+  /** Lowercase name -> WhatsApp digits, from a shared contact card or "mum's number is ...", so a nudge can open the chat. */
+  peopleNumbers?: Record<string, string>;
   /** One-line explanations already shown, so each feature is explained once. */
   tips?: string[];
   /** Date of the last "you're off the clock, call someone" nudge. */

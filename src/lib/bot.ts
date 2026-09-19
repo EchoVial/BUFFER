@@ -170,6 +170,10 @@ const span = (start: string, minutes: number) => `${clockShort(start)} to ${cloc
 /** One-line explanations, each shown once per person. */
 const TIPS: Record<string, string> = {
   keep: "(reserved = no work goes there, and it's the first place i suggest people time. *Undo* removes it.)",
+  contact: "(share their contact card here and the nudge opens their chat in one tap.)",
+  gsync: "(it's in your google calendar too.)",
+  feedsync: "(your calendar picks it up within the hour.)",
+  calask: "(want these in your calendar too? *connect google* or *connect apple*.)",
   save: "(*Undo* removes it. *Push 30 min later* moves it.)",
   todo: "(no fixed time: i slot it into a free gap.)",
   picture: "(purple blocks: drag them to a new time.)",
@@ -202,6 +206,60 @@ function dayWordFor(iso: string, tz: string): string {
 const isGroup = (name: string) => /^(roommates?|flatmates?|housemates?|friends|family|cousins|parents|siblings|the boys|the girls|the gang|team|mates)$/i.test(name.trim());
 
 /** Names from "mum, dad", "nani and rohan", "my sister & ayaan". */
+/** The most recent day they were in touch with this person: explicit ("called mum") or a saved social plan whose day has passed. */
+function lastContactDate(user: UserRecord, name: string): string | undefined {
+  const key = name.toLowerCase();
+  const today = dateISO(nowInZone(user.settings.timezone));
+  const dates = [user.lastContact?.[key]].filter(Boolean) as string[];
+  for (const e of user.events) {
+    if (e.kind === "social" && e.date <= today && e.title.toLowerCase().includes(key)) dates.push(e.date);
+  }
+  return dates.sort().pop();
+}
+
+function daysSince(user: UserRecord, name: string): number | undefined {
+  const d = lastContactDate(user, name);
+  if (!d) return undefined;
+  const today = dateISO(nowInZone(user.settings.timezone));
+  return Math.round((new Date(`${today}T12:00:00Z`).getTime() - new Date(`${d}T12:00:00Z`).getTime()) / 86400000);
+}
+
+/** Something with this person already on the calendar in the next 7 days. */
+function plannedSoon(user: UserRecord, name: string): CalendarEvent | undefined {
+  const today = dateISO(nowInZone(user.settings.timezone));
+  const end = addDaysISO(today, 7);
+  return user.events.find((e) => e.kind === "social" && e.date >= today && e.date <= end && e.title.toLowerCase().includes(name.toLowerCase()));
+}
+
+/** Who to nudge about: longest since contact first (never first of all), skipping anyone already planned this week. */
+function pickPerson(user: UserRecord): string | undefined {
+  const people = (user.people ?? []).filter((p) => !plannedSoon(user, p));
+  if (!people.length) return (user.people ?? [])[(user.nudgeIndex ?? 0) % Math.max(1, (user.people ?? []).length)];
+  return [...people].sort((a, b) => (daysSince(user, b) ?? 9999) - (daysSince(user, a) ?? 9999))[0];
+}
+
+/** A wa.me link that opens the chat with that person, when their number is known. */
+function chatLink(user: UserRecord, name: string, text: string): string | undefined {
+  const digits = user.peopleNumbers?.[name.toLowerCase()];
+  return digits ? `https://wa.me/${digits}?text=${encodeURIComponent(text)}` : undefined;
+}
+
+function touch(next: UserRecord, name: string, date: string) {
+  next.lastContact = { ...(next.lastContact ?? {}), [name.toLowerCase()]: date };
+}
+
+/** File a number under one of their people; a stranger's card adds them as a person. */
+function fileNumber(next: UserRecord, rawName: string, digits: string): { name: string; added: boolean } {
+  const people = next.people ?? [];
+  const lower = rawName.toLowerCase();
+  const first = lower.split(/\s+/)[0];
+  const match = people.find((p) => lower.includes(p.toLowerCase()) || p.toLowerCase().includes(first));
+  const name = match ?? cap(rawName.split(/\s+/)[0]);
+  if (!match) next.people = [...people, name].slice(0, 6);
+  next.peopleNumbers = { ...(next.peopleNumbers ?? {}), [name.toLowerCase()]: digits };
+  return { name, added: !match };
+}
+
 export function parsePeople(text: string): string[] {
   const t = text
     .toLowerCase()
@@ -291,7 +349,8 @@ function findTodo(user: UserRecord, hint: string): TodoItem | undefined {
   return user.todos.find((t) => t.title.toLowerCase().includes(h) && h.length > 1);
 }
 
-function calendarButtons(connected: boolean): ReplyButton[] {
+function calendarButtons(connected: boolean, google = false): ReplyButton[] {
+  if (google) return [];
   return [
     { id: "gcal", title: "Add to Google Cal", action: "google-cal" },
     { id: "ics", title: "Download .ics file", action: "ics" },
@@ -338,7 +397,8 @@ function commitEvent(next: UserRecord, ev: CalendarEvent, lead?: string, note?: 
   const rest = ` ${freeLine(plan, next)}`;
   const who = (next.people ?? []).slice(0, 2).join(" or ");
   const nextStep = ev.kind === "work" ? (who ? ` time for ${who} in the rest of it?` : " want to put some people in the rest of it?") : ev.kind === "social" ? " good. that's the bit that matters." : "";
-  const text = `${lead ?? `${what}. *${ev.title}* ${when}, ${span(ev.start, ev.durationMinutes)}${note ? ` (${note})` : ""}.`}${rest}${nextStep}${tip(next, "save")}`;
+  const synced = next.google ? tip(next, "gsync") : next.calendarConnectedAt ? tip(next, "feedsync") : onWhatsApp(next) && next.events.length >= 2 ? tip(next, "calask") : "";
+  const text = `${lead ?? `${what}. *${ev.title}* ${when}, ${span(ev.start, ev.durationMinutes)}${note ? ` (${note})` : ""}.`}${rest}${nextStep}${tip(next, "save")}${synced}`;
   return botText(text, {
     card: dayPicture(next, ev.date, ev.title),
     buttons: ev.kind === "work" ? [B.ideas, B.undo, B.later30] : [B.undo, B.later30, B.today],
@@ -860,14 +920,38 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
   }
   if (/^who do i call\??$/.test(lower)) {
     const p = next.people ?? [];
+    const line = (name: string) => {
+      const d = daysSince(next, name);
+      const soon = plannedSoon(next, name);
+      return `${name}: ${soon ? `${dayWordFor(soon.date, tz)} ${clockShort(soon.start)}` : d === undefined ? "no call logged yet" : d === 0 ? "today" : d === 1 ? "yesterday" : `${d} days ago`}`;
+    };
     push(
       botText(
         p.length
-          ? `i nudge you to call ${p.join(", ")} when you're free after ${clockShort(next.settings.protectEveningsAfter || "19:00")}. add someone with *nudge me to call X*, or say *forget about X*.`
+          ? `${p.map(line).join("\n")}\n\nnudges go to whoever it's been longest, after ${clockShort(next.settings.protectEveningsAfter || "19:00")}. *called mum* logs a call, *forget about X* drops someone.${onWhatsApp(next) ? tip(next, "contact") : ""}`
           : "no one yet. say *nudge me to call mum* and i'll add her.",
       ),
     );
     return done();
+  }
+  const logged = lower.match(/^(?:i )?(?:called|rang|phoned|spoke to|spoke with|talked to|texted|met|saw|visited|had (?:dinner|lunch|coffee) with) (.+?)(?: (today|yesterday|this morning|last night|earlier))?\.?$/);
+  if (logged && (next.people ?? []).some((p) => logged[1].includes(p.toLowerCase()))) {
+    const who = (next.people ?? []).find((p) => logged[1].includes(p.toLowerCase()))!;
+    const date = /yesterday|last night/.test(logged[2] || "") ? addDaysISO(todayISO, -1) : todayISO;
+    touch(next, who, date);
+    push(botText(`logged: ${who}, ${date === todayISO ? "today" : "yesterday"}. good.`, { buttons: [B.ideas, B.today] }));
+    return done();
+  }
+  // "mum's number is +91 98...", or a shared contact card
+  const numberFor = lower.match(/^(?:contact card: (.+?) (\d{7,15})|(.+?)'?s? (?:number|whatsapp) is \+?([\d\s-]{7,20}))$/);
+  if (numberFor) {
+    const rawName = (numberFor[1] ?? numberFor[3] ?? "").trim();
+    const digits = (numberFor[2] ?? numberFor[4] ?? "").replace(/\D/g, "");
+    if (rawName && digits.length >= 7) {
+      const { name, added } = fileNumber(next, rawName, digits);
+      push(botText(added ? `added ${name}, number saved. the nudge about ${name} opens the chat in one tap. *forget about ${name.toLowerCase()}* if that's wrong.` : `got ${name}'s number. the nudge now opens the chat in one tap.`));
+      return done();
+    }
   }
   const callLater = lower.match(/^remind me to call (.+?) later tonight$/);
   if (callLater) {
@@ -892,7 +976,7 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     if (names.length) {
       const have = new Set((next.people ?? []).map((n) => n.toLowerCase()));
       next.people = [...(next.people ?? []), ...names.filter((n) => !have.has(n.toLowerCase()))].slice(0, 6);
-      push(botText(`added. i'll nudge you to call ${names.join(" and ")} when you're free after ${clockShort(next.settings.protectEveningsAfter || "19:00")}.`));
+      push(botText(`added. i'll nudge you to call ${names.join(" and ")} when you're free after ${clockShort(next.settings.protectEveningsAfter || "19:00")}.${onWhatsApp(next) ? tip(next, "contact") : ""}`));
       return done();
     }
   }
@@ -912,7 +996,9 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     const ev = finalizeEvent({ title, kind: "social", date: todayISO, start, durationMinutes: isGroup(who) ? 45 : 20 });
     next.events = [...next.events, ev];
     next.lastLockedEventId = ev.id;
-    push(botText(`${isGroup(who) ? "go on then, enjoy it." : "go on then. say hi from me."}\n\ni've put *${title}* on today so it counts.`, { buttons: [B.today, B.undo, B.week] }));
+    touch(next, who, todayISO);
+    const link = chatLink(next, who, "hey, free right now. got ten minutes for a call?");
+    push(botText(`${isGroup(who) ? "go on then, enjoy it." : "go on then. say hi from me."}${link ? `\n${link}` : ""}\n\ni've put *${title}* on today so it counts.`, { buttons: [B.today, B.undo, B.week] }));
     return done();
   }
   if (/^skip the call today$/.test(lower)) {
@@ -1032,6 +1118,10 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     const connected = Boolean(next.calendarConnectedAt);
     if (!ev) {
       push(botText("nothing saved yet. mark something first, like *work 7 to 10pm today*.", { buttons: [B.addWork, B.ideas, { id: "connect", title: "Connect live feed", action: "connect-feed" }] }));
+    } else if (next.google) {
+      push(botText(`*${ev.title}* is already in your google calendar. everything i save goes there on its own.`, { buttons: [B.today, B.week] }));
+    } else if (onWhatsApp(next) && !connected) {
+      push(botText(`the quick way is once: *connect google* and every plan lands there by itself, or *connect apple* for iphone. for just this one:`, { buttons: calendarButtons(false), calendarEventId: ev.id }));
     } else {
       push(
         botText(`*${ev.title}* · ${dayWordFor(ev.date, tz)} ${span(ev.start, ev.durationMinutes)}.${tip(next, "calendar")}`, {
@@ -1430,13 +1520,16 @@ export function unwindNudge(user: UserRecord): { message?: ChatMessage; patch?: 
   if (calledToday) return { patch: { lastNudgeDate: today } };
   const people = user.people ?? [];
   const idx = (user.nudgeIndex ?? 0) % Math.max(1, people.length);
-  const who = people[idx];
+  const who = pickPerson(user);
   const group = Boolean(who && isGroup(who));
   const kept = reserved ? `you kept ${span(reserved.start, reserved.durationMinutes)} clear tonight.` : "you're off the clock.";
+  const gap = who ? daysSince(user, who) : undefined;
+  const since = who && gap !== undefined && gap >= 3 ? ` ${gap} days since ${group ? `your ${who.toLowerCase()}` : who}.` : "";
+  const link = who ? chatLink(user, who, "hey, free tonight. got ten minutes for a call?") : undefined;
   const text = who
     ? group
-      ? `${kept} some time with your ${who.toLowerCase()} would be a good use of it. even half an hour.`
-      : `${kept} ${who} would love to hear from you. even ten minutes counts.`
+      ? `${kept}${since} some time with your ${who.toLowerCase()} would be a good use of it. even half an hour.`
+      : `${kept}${since} ${who} would love to hear from you. even ten minutes counts.${link ? `\n${link}` : ""}`
     : `${kept} a ten-minute call to someone you love counts more than it feels like it does.`;
   const buttons = who
     ? [
