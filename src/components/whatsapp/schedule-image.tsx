@@ -76,7 +76,7 @@ function WeekSvg({ card }: { card: Extract<ImageCard, { variant: "week" }> }) {
   const top = 92;
   const bottom = WEEK_H - 44;
   const colW = (W - left * 2) / days.length;
-  const maxMin = Math.max(6 * 60, ...days.map((d) => d.freeMinutes + d.workMinutes + (d.goneMinutes ?? 0)));
+  const maxMin = Math.max(6 * 60, ...days.map((d) => d.freeMinutes + d.workMinutes + (d.peopleMinutes ?? 0) + (d.goneMinutes ?? 0)));
   const scale = (bottom - top) / maxMin;
   return (
     <Frame h={WEEK_H} title={card.title} subtitle={card.subtitle}>
@@ -87,13 +87,17 @@ function WeekSvg({ card }: { card: Extract<ImageCard, { variant: "week" }> }) {
           <line x1="0" y1="0" x2="0" y2="7" stroke={MUTED} strokeWidth="1.6" strokeOpacity="0.55" />
         </pattern>
       </defs>
-      <g transform={`translate(${W - 20 - 118}, 66)`}>
+      <g transform={`translate(${W - 20 - 176}, 66)`}>
         <rect width="9" height="9" rx="2" fill={FREE} y="1" />
         <text x="14" y="9" fill={MUTED} fontSize="11" fontFamily={FONT}>
           free
         </text>
-        <rect width="9" height="9" rx="2" fill={WORK} x="48" y="1" />
+        <rect width="9" height="9" rx="2" fill={ACCENT} x="48" y="1" />
         <text x="62" y="9" fill={MUTED} fontSize="11" fontFamily={FONT}>
+          people
+        </text>
+        <rect width="9" height="9" rx="2" fill={WORK} x="106" y="1" />
+        <text x="120" y="9" fill={MUTED} fontSize="11" fontFamily={FONT}>
           work
         </text>
       </g>
@@ -102,14 +106,17 @@ function WeekSvg({ card }: { card: Extract<ImageCard, { variant: "week" }> }) {
         const x = left + i * colW + colW * 0.2;
         const bw = colW * 0.6;
         const workH = d.workMinutes * scale;
+        const peopleH = (d.peopleMinutes ?? 0) * scale;
         const freeH = d.freeMinutes * scale;
         const goneH = (d.goneMinutes ?? 0) * scale;
         const yWork = bottom - workH;
-        const yFree = yWork - freeH;
+        const yPeople = yWork - peopleH;
+        const yFree = yPeople - freeH;
         const yGone = yFree - goneH;
         return (
           <g key={d.date}>
             {workH > 0 && <rect x={x} y={yWork} width={bw} height={Math.max(2, workH)} fill={WORK} opacity="0.9" rx="3" />}
+            {peopleH > 0 && <rect x={x} y={yPeople} width={bw} height={Math.max(3, peopleH)} fill={ACCENT} rx="3" />}
             {freeH > 0 && <rect x={x} y={yFree} width={bw} height={Math.max(2, freeH)} fill={FREE} rx="3" />}
             {goneH > 0 && <rect x={x} y={yGone} width={bw} height={Math.max(2, goneH)} fill="url(#gone)" rx="3" />}
             {!d.freeMinutes && !d.workMinutes && !d.goneMinutes && <rect x={x} y={bottom - 3} width={bw} height="3" fill="#ffffff" fillOpacity="0.15" rx="1.5" />}

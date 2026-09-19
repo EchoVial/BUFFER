@@ -258,7 +258,7 @@ export function weekImage(view: WeekView, user: UserRecord): ImageCard {
     type: "image",
     variant: "week",
     title: "Your next 7 days",
-    subtitle: view.totalWork ? "white is free, grey is work" : "nothing marked as work yet",
+    subtitle: view.totalSocial ? "white is free, purple is people, grey is work" : view.totalWork ? "white is free, grey is work. no purple yet" : "nothing marked as work yet",
     days: view.days.map((d) => {
       const biggest = [...d.windows].sort((a, b) => b.endMin - b.startMin - (a.endMin - a.startMin))[0];
       return {
@@ -266,6 +266,7 @@ export function weekImage(view: WeekView, user: UserRecord): ImageCard {
         label: `${weekdayShort(d.date)} ${Number(d.date.slice(8))}`,
         freeMinutes: d.freeMinutes,
         workMinutes: d.date === today ? d.workLeftMinutes : d.workMinutes,
+        peopleMinutes: d.socialMinutes || undefined,
         goneMinutes: d.goneMinutes || undefined,
         best: biggest ? `${shortClock(minutesToHM(biggest.startMin)).replace(/\s/g, "")} to ${shortClock(minutesToHM(biggest.endMin)).replace(/\s/g, "")}` : undefined,
         today: d.date === today,

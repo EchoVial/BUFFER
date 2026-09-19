@@ -114,9 +114,9 @@ function DayCard({ card }: { card: Extract<ImageCard, { variant: "day" }> }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid rgba(255,255,255,0.12)", paddingTop: 18 }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           {movable ? <div style={{ width: 18, height: 18, borderRadius: 4, background: ACCENT, display: "flex", marginRight: 12 }} /> : null}
-          <div style={{ fontSize: 22, color: MUTED, display: "flex" }}>{movable ? "purple: your plans. text me to move one" : ""}</div>
+          <div style={{ fontSize: 22, color: MUTED, display: "flex" }}>{movable ? "purple: your plans" : ""}</div>
         </div>
-        <div style={{ fontSize: 25, color: INK, display: "flex" }}>{card.footer}</div>
+        <div style={{ fontSize: 24, color: INK, display: "flex", flexShrink: 0, whiteSpace: "nowrap" }}>{card.footer}</div>
       </div>
     </div>
   );
@@ -133,7 +133,7 @@ const WEEK_H = 472;
 function WeekCard({ card }: { card: Extract<ImageCard, { variant: "week" }> }) {
   const pad = 40;
   const chartH = 220;
-  const maxMin = Math.max(6 * 60, ...card.days.map((d) => d.freeMinutes + d.workMinutes + (d.goneMinutes ?? 0)));
+  const maxMin = Math.max(6 * 60, ...card.days.map((d) => d.freeMinutes + d.workMinutes + (d.peopleMinutes ?? 0) + (d.goneMinutes ?? 0)));
   // The part of today already behind you: dim with slanted marks, so today stands as tall as the other days.
   const gone = { backgroundColor: BLOCK_DIM, backgroundImage: `repeating-linear-gradient(135deg, ${MUTED}55 0px, ${MUTED}55 3px, transparent 3px, transparent 10px)` };
   return (
@@ -142,6 +142,8 @@ function WeekCard({ card }: { card: Extract<ImageCard, { variant: "week" }> }) {
       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", marginTop: 14, fontSize: 21, color: MUTED }}>
         <div style={{ width: 16, height: 16, borderRadius: 4, background: FREE, display: "flex", marginRight: 8 }} />
         <div style={{ display: "flex", marginRight: 22 }}>free</div>
+        <div style={{ width: 16, height: 16, borderRadius: 4, background: ACCENT, display: "flex", marginRight: 8 }} />
+        <div style={{ display: "flex", marginRight: 22 }}>people</div>
         <div style={{ width: 16, height: 16, borderRadius: 4, background: WORK, display: "flex", marginRight: 8 }} />
         <div style={{ display: "flex" }}>work</div>
       </div>
@@ -149,12 +151,14 @@ function WeekCard({ card }: { card: Extract<ImageCard, { variant: "week" }> }) {
         {card.days.map((d) => {
           const freeH = Math.round((d.freeMinutes / maxMin) * chartH);
           const workH = Math.round((d.workMinutes / maxMin) * chartH);
+          const peopleH = Math.round(((d.peopleMinutes ?? 0) / maxMin) * chartH);
           const goneH = Math.round(((d.goneMinutes ?? 0) / maxMin) * chartH);
           return (
             <div key={d.date} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: chartH }}>
               <div style={{ width: "58%", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
                 {goneH > 0 ? <div style={{ height: Math.max(3, goneH), ...gone, borderRadius: 6, display: "flex", marginBottom: 2 }} /> : null}
                 {freeH > 0 ? <div style={{ height: Math.max(3, freeH), background: FREE, borderRadius: 6, display: "flex" }} /> : null}
+                {peopleH > 0 ? <div style={{ height: Math.max(4, peopleH), background: ACCENT, borderRadius: 6, display: "flex", marginTop: 2 }} /> : null}
                 {workH > 0 ? <div style={{ height: Math.max(3, workH), background: WORK, borderRadius: 6, display: "flex", marginTop: 2 }} /> : null}
                 {!d.freeMinutes && !d.workMinutes && !d.goneMinutes ? <div style={{ height: 4, background: "rgba(255,255,255,0.15)", borderRadius: 2, display: "flex" }} /> : null}
               </div>

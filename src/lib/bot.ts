@@ -336,7 +336,8 @@ function commitEvent(next: UserRecord, ev: CalendarEvent, lead?: string, note?: 
   const when = dayWordFor(ev.date, tz);
   const what = ev.kind === "work" ? "marked" : ev.kind === "social" ? "on the calendar" : "added";
   const rest = ` ${freeLine(plan, next)}`;
-  const nextStep = ev.kind === "work" ? " want to put some people in the rest of it?" : ev.kind === "social" ? " good. that's the bit that matters." : "";
+  const who = (next.people ?? []).slice(0, 2).join(" or ");
+  const nextStep = ev.kind === "work" ? (who ? ` time for ${who} in the rest of it?` : " want to put some people in the rest of it?") : ev.kind === "social" ? " good. that's the bit that matters." : "";
   const text = `${lead ?? `${what}. *${ev.title}* ${when}, ${span(ev.start, ev.durationMinutes)}${note ? ` (${note})` : ""}.`}${rest}${nextStep}${tip(next, "save")}`;
   return botText(text, {
     card: dayPicture(next, ev.date, ev.title),
@@ -684,6 +685,53 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     push(workQuestion());
     return done();
   }
+  const DAYWORD = "today|tomorrow|sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tue|tues|wed|thu|thur|thurs|fri|sat";
+  const dateFor = (word: string | undefined): string => {
+    const w = (word || "today").toLowerCase();
+    if (w === "today") return todayISO;
+    if (w === "tomorrow") return addDaysISO(todayISO, 1);
+    const target = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"].indexOf(w.slice(0, 3));
+    let delta = (target - new Date(`${todayISO}T12:00:00`).getDay() + 7) % 7;
+    if (delta === 0) delta = 7;
+    return addDaysISO(todayISO, delta);
+  };
+  const clearDo = lower.match(new RegExp(`^clear (everything|all|work|class|shift) (${DAYWORD}|\\d{4}-\\d{2}-\\d{2})$`));
+  if (clearDo) {
+    const date = /^\d{4}/.test(clearDo[2]) ? clearDo[2] : dateFor(clearDo[2]);
+    const all = clearDo[1] === "everything" || clearDo[1] === "all";
+    const gone = next.events.filter((e) => e.date === date && (all || e.kind === "work"));
+    const wasOff = next.daysOff?.includes(date) ?? false;
+    next.events = next.events.filter((e) => !gone.includes(e));
+    if (!wasOff) next.daysOff = [...(next.daysOff ?? []), date].slice(-30);
+    next.lastCleared = { date, events: gone, dayOff: !wasOff };
+    next.lastLockedEventId = undefined;
+    const plan = buildDayPlan(next, date);
+    const word = dayWordFor(date, tz);
+    const label = (next.settings.workLabel || "work").toLowerCase();
+    push(botText(all ? `cleared ${word}: ${gone.length ? `${gone.length} thing${gone.length === 1 ? "" : "s"} gone` : "nothing was on"}, ${label} off. ${freeLine(plan, next)} *undo* brings it back.` : `ok, no ${label} ${word}. ${freeLine(plan, next)}`, { buttons: [B.ideas, B.undo, B.today] }));
+    return done();
+  }
+  const clearAsk = lower.match(new RegExp(`^(?:clear|wipe|empty|cancel|delete|remove|free up) (?:my |the )?(?:schedule|day|calendar|plans|everything|whole day)(?: for| on)?(?: (${DAYWORD}))?$`));
+  if (clearAsk) {
+    const date = dateFor(clearAsk[1]);
+    const word = dayWordFor(date, tz);
+    const has = next.events.filter((e) => e.date === date);
+    const label = (next.settings.workLabel || "work").toLowerCase();
+    push(
+      botText(has.length || standingWork(next.settings) ? `clear everything ${word}, or just the ${label}?` : `nothing is on ${word} apart from the ${label}. clear that?`, {
+        buttons: [btn("clr-all", "Clear everything", `clear everything ${word === "today" || word === "tomorrow" ? word : date}`), btn("clr-work", `Only ${cap(label)}`.slice(0, 20), `clear work ${word === "today" || word === "tomorrow" ? word : date}`), B.cancel],
+      }),
+    );
+    return done();
+  }
+  if (/^undo$/.test(lower) && next.lastCleared) {
+    const c = next.lastCleared;
+    next.events = [...next.events, ...c.events];
+    if (c.dayOff) next.daysOff = (next.daysOff ?? []).filter((d) => d !== c.date);
+    next.lastCleared = undefined;
+    push(botText(`back as it was ${dayWordFor(c.date, tz)}.`, { buttons: [B.today, B.week] }));
+    return done();
+  }
   if (/^undo$/.test(lower)) {
     const ev = next.events.find((e) => e.id === next.lastLockedEventId);
     if (!ev) {
@@ -895,7 +943,7 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     const lead = !view.totalWork
       ? "nothing is marked as work yet, so the week looks wide open. tell me your work and this gets real: *work 9 to 5 tomorrow*."
       : view.totalFree
-        ? "here's your week. white is free, grey is work."
+        ? `here's your week. white is free, ${view.totalSocial ? "purple is people, " : ""}grey is work.`
         : "the next 7 days are full edge to edge. that's the first thing to fix.";
     // Time already reserved is not offered for reserving again; it is offered for people.
     const open = view.best.filter((w) => w.slot !== "reserved");
@@ -1348,15 +1396,19 @@ export function dailyDigest(user: UserRecord): { message?: ChatMessage; patch?: 
   if (minutesNow < 8 * 60 || minutesNow >= 12 * 60) return {};
   const plan = buildDayPlan(user, today);
   const busy = plan.blocks.some((b) => b.kind !== "free" && b.kind !== "sleep");
-  const text = busy ? `morning. ${freeLine(plan, user)}` : "morning. nothing on today yet.";
+  const weekAhead = weekView(user);
+  const who = (user.people ?? []).slice(0, 2).join(" or ");
+  const noPeople = !weekAhead.totalSocial && (user.events.length || standingWork(user.settings));
+  const people = noPeople ? ` nothing with people in the next 7 days yet.${who ? ` ${who}?` : ""} *plan people time* finds the slot.` : "";
+  const text = busy ? `morning. ${freeLine(plan, user)}${people}` : `morning. nothing on today yet.${people}`;
   return {
-    message: botText(text, { card: dayPicture(user, today), buttons: busy ? [B.ideas, B.week] : [B.addWork, B.ideas] }),
+    message: botText(text, { card: dayPicture(user, today), buttons: busy || noPeople ? [B.ideas, B.week] : [B.addWork, B.ideas] }),
     patch: { lastDigestDate: today },
   };
 }
 
 /**
- * The evening nudge: once a day, in the 90 minutes after their switch-off
+ * The evening nudge: once a day, in the three hours after their switch-off
  * time, when nothing is on and setup is done. Names one of their people.
  */
 export function unwindNudge(user: UserRecord): { message?: ChatMessage; patch?: Partial<UserRecord> } {
@@ -1368,7 +1420,7 @@ export function unwindNudge(user: UserRecord): { message?: ChatMessage; patch?: 
   if (user.lastNudgeDate === today) return {};
   const minutesNow = now.getHours() * 60 + now.getMinutes();
   const unwind = hmToMinutes(user.settings.protectEveningsAfter || "19:00");
-  if (minutesNow < unwind || minutesNow > unwind + 90) return {};
+  if (minutesNow < unwind || minutesNow > unwind + 180) return {};
   // A reserved block is not "busy": it is the time they kept clear, so the nudge points at it.
   const inside = (e: CalendarEvent) => e.date === today && hmToMinutes(e.start) <= minutesNow && hmToMinutes(e.start) + e.durationMinutes > minutesNow;
   const busy = user.events.some((e) => inside(e) && !isReservedEvent(e));

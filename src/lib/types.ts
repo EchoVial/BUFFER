@@ -99,7 +99,7 @@ export type ImageCard =
       title: string;
       subtitle: string;
       /** For today, freeMinutes and workMinutes are what is still ahead; goneMinutes is the part of the day already behind you. */
-      days: Array<{ date: string; label: string; freeMinutes: number; workMinutes: number; goneMinutes?: number; best?: string; today?: boolean }>;
+      days: Array<{ date: string; label: string; freeMinutes: number; workMinutes: number; peopleMinutes?: number; goneMinutes?: number; best?: string; today?: boolean }>;
     }
   | {
       type: "image";
@@ -197,6 +197,8 @@ export interface UserRecord {
   draft: ConversationDraft;
   remindedEventIds: string[];
   lastLockedEventId?: string;
+  /** What "clear my day" removed, so *undo* can put it back. */
+  lastCleared?: { date: string; events: CalendarEvent[]; dayOff: boolean };
   calendarToken?: string;
   calendarConnectedAt?: string;
   calendarConnectedVia?: string;
