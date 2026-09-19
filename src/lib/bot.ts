@@ -1354,6 +1354,7 @@ export function dailyDigest(user: UserRecord): { message?: ChatMessage; patch?: 
  */
 export function unwindNudge(user: UserRecord): { message?: ChatMessage; patch?: Partial<UserRecord> } {
   if (user.onboarding && user.onboarding !== "done") return {};
+  if (user.notify === false) return {}; // they said no nudges; the chat still answers when asked
   const tz = user.settings.timezone;
   const now = nowInZone(tz);
   const today = dateISO(now);
