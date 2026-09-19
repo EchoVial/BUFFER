@@ -89,6 +89,11 @@ export interface ChatMessage {
   buttons?: ReplyButton[];
   list?: InteractiveList;
   calendarEventId?: string;
+  /** Bot messages Buffer sent on its own: the 8 am picture, the evening nudge, an event reminder. */
+  tag?: "digest" | "nudge" | "reminder";
+  /** User messages: what Buffer made of it ("add_event", "set_pref", "week"...), or "fast" for a button or a one-word command. */
+  intent?: string;
+  channel?: "whatsapp" | "web";
 }
 
 /** A picture instead of a wall of text: the week as bars, or a day as a strip. Drawn client-side. */

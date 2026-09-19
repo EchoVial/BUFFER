@@ -25,6 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { StudyPanel } from "@/components/admin/StudyPanel";
 
 type UserRow = {
   id: string;
@@ -180,12 +181,17 @@ export function AdminDashboard() {
       <p className="border-b border-zinc-800 px-4 py-2 text-xs text-zinc-500">{hint}</p>
       {error && <p className="px-4 py-2 text-sm text-red-400">{error}</p>}
 
-      <Tabs defaultValue="users" className="p-4">
+      <Tabs defaultValue="study" className="p-4">
         <TabsList>
+          <TabsTrigger value="study">Study</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
           <TabsTrigger value="settings">Parameters</TabsTrigger>
           <TabsTrigger value="debug">Last NLP</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="study" className="mt-4">
+          <StudyPanel password={password} />
+        </TabsContent>
 
         <TabsContent value="users" className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_1fr]">
           <Card className="border-zinc-800 bg-zinc-900">

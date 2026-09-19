@@ -11,6 +11,7 @@ import {
   upsertUser,
 } from "@/lib/store";
 import { DEFAULT_USER_SETTINGS, UserSettings } from "@/lib/types";
+import { studyRow, transcript, transcriptCsv } from "@/lib/study";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,20 @@ function deny() {
 
 export async function GET(req: NextRequest) {
   if (!adminOk(req)) return deny();
-  const id = req.nextUrl.searchParams.get("userId");
+  const q = req.nextUrl.searchParams;
+  const id = q.get("userId");
+  // The study view: one row per participant, a readable transcript, or everything as CSV.
+  if (q.get("study")) return NextResponse.json({ rows: (await listUsers()).map(studyRow) });
+  if (q.get("csv")) {
+    return new NextResponse(transcriptCsv(await listUsers()), {
+      headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="buffer-transcripts-${new Date().toISOString().slice(0, 10)}.csv"` },
+    });
+  }
+  if (id && q.get("transcript")) {
+    const user = await getUserById(id);
+    if (!user) return NextResponse.json({ error: "not found" }, { status: 404 });
+    return NextResponse.json({ row: studyRow(user), messages: transcript(user) });
+  }
   if (id) {
     const user = await getUserById(id);
     if (!user) return NextResponse.json({ error: "not found" }, { status: 404 });

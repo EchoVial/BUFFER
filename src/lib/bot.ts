@@ -33,6 +33,7 @@ type BotExtra = {
   buttons?: ReplyButton[];
   list?: InteractiveList;
   calendarEventId?: string;
+  tag?: ChatMessage["tag"];
 };
 
 const CARD_TYPES = new Set(["schedule", "proposal", "todos", "overlaps", "debug", "image"]);
@@ -695,6 +696,7 @@ export function beginChat(user: UserRecord): UserRecord {
 export async function processTurn(user: UserRecord, text: string): Promise<{ user: UserRecord; replies: ChatMessage[] }> {
   const now = new Date().toISOString();
   const incoming = userText(text);
+  incoming.channel = user.waPhone ? "whatsapp" : "web";
   const next: UserRecord = {
     ...user,
     messages: [...user.messages, incoming],
@@ -706,6 +708,8 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     replies.push(...(Array.isArray(m) ? m : [m]));
   };
   const done = () => {
+    // For the study view: a button tap or a one-word command that never reached the model is "fast".
+    incoming.intent ??= next.onboarding && next.onboarding !== "done" ? "setup" : "fast";
     // A picture is its own bubble and every picture goes out before any words.
     for (let i = replies.length - 1; i >= 0; i--) {
       const m = replies[i];
@@ -1008,6 +1012,7 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
 
   // --- everything else: understand the text (Claude when a key is set, rules otherwise)
   const parsed = await understand(text, user);
+  incoming.intent = parsed.intent;
   next.lastNlp = parsed.debug;
   next.notes = rememberNotes(user.notes, parsed.memoryNotes);
   // Someone mentioned in passing ("...and remind me to spend time with my roommates too") joins the nudge list.
@@ -1450,12 +1455,13 @@ export function dueReminders(user: UserRecord): ChatMessage[] {
             : e.kind === "social"
               ? `*${e.title}* at ${clockShort(e.start)}. hope it's a good one.`
               : `heads up, *${e.title}* starts at ${clockShort(e.start)}.`,
+          { tag: "reminder" },
         ),
       );
     }
     const preId = `pre:${e.id}`;
     if (starredTodos.length && delta <= starLead && delta > 0 && !user.remindedEventIds.includes(preId)) {
-      out.push(botText(`before *${e.title}* at ${clockShort(e.start)}: ${starredTodos.map((t) => `*${t.title}*`).join(", ")}.`));
+      out.push(botText(`before *${e.title}* at ${clockShort(e.start)}: ${starredTodos.map((t) => `*${t.title}*`).join(", ")}.`, { tag: "reminder" }));
     }
   }
   return out;
@@ -1492,7 +1498,7 @@ export function dailyDigest(user: UserRecord): { message?: ChatMessage; patch?: 
   const people = noPeople ? ` nothing with people in the next 7 days yet.${who ? ` ${who}?` : ""} *plan people time* finds the slot.` : "";
   const text = busy ? `morning. ${freeLine(plan, user)}${people}` : `morning. nothing on today yet.${people}`;
   return {
-    message: botText(text, { card: dayPicture(user, today), buttons: busy || noPeople ? [B.ideas, B.week] : [B.addWork, B.ideas] }),
+    message: botText(text, { card: dayPicture(user, today), buttons: busy || noPeople ? [B.ideas, B.week] : [B.addWork, B.ideas], tag: "digest" }),
     patch: { lastDigestDate: today },
   };
 }
@@ -1539,7 +1545,7 @@ export function unwindNudge(user: UserRecord): { message?: ChatMessage; patch?: 
       ]
     : [btn("who", "Add a person", "nudge me to call "), btn("skip", "Skip today", "skip the call today"), B.today];
   return {
-    message: botText(text, { buttons }),
+    message: botText(text, { buttons, tag: "nudge" }),
     patch: { lastNudgeDate: today, nudgeIndex: idx + 1 },
   };
 }
