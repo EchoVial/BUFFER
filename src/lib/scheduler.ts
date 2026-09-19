@@ -100,7 +100,7 @@ export function buildDayPlan(user: UserRecord, date: string): DayPlan {
       endMin: start + e.durationMinutes,
       title: e.starred ? `★ ${e.title}` : e.title,
       kind: "event",
-      subtype: e.kind,
+      subtype: e.reserved || /^reserved\b/i.test(e.title) ? "reserved" : e.kind,
       id: e.id,
       movable: e.flexible,
     };

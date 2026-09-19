@@ -15,7 +15,7 @@ import { siteOrigin } from "./calendar";
 import { understand, understandSetup } from "./understand";
 import { isStandingLanguage, parseRange, workLabelFor, type ParsedMessage, exceptDaysIn } from "./nlp";
 import type { SetupUnderstanding } from "./llm";
-import { dayImage, describeWindow, freeLine, protectPayload, protectedEvent, slotName, standingWork, suggestForFreeTime, suggestionLine, suggestionPayload, weekImage, weekView, windowLabel } from "./life";
+import { dayImage, describeWindow, freeLine, isReservedEvent, protectPayload, protectedEvent, slotName, standingWork, suggestForFreeTime, suggestionLine, suggestionPayload, weekImage, weekView, windowLabel } from "./life";
 import { findNamedItem } from "./match";
 import { buildDayPlan, proposeEvent } from "./scheduler";
 import {
@@ -169,7 +169,7 @@ const span = (start: string, minutes: number) => `${clockShort(start)} to ${cloc
 
 /** One-line explanations, each shown once per person. */
 const TIPS: Record<string, string> = {
-  keep: "(*Reserved for you* sits on your calendar. *Undo* removes it.)",
+  keep: "(reserved = no work goes there, and it's the first place i suggest people time. *Undo* removes it.)",
   save: "(*Undo* removes it. *Push 30 min later* moves it.)",
   todo: "(no fixed time: i slot it into a free gap.)",
   picture: "(purple blocks: drag them to a new time.)",
@@ -897,9 +897,16 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
       : view.totalFree
         ? "here's your week. white is free, grey is work."
         : "the next 7 days are full edge to edge. that's the first thing to fix.";
-    const best = view.best.length && view.totalWork ? `\nyour biggest open stretch is ${windowLabel(view.best[0])}.` : "";
-    const nudge = view.best.length && view.totalWork ? " want me to reserve it for you?" : "";
-    const buttons = view.best.slice(0, 2).map((w, i) => btn(`keep-${i}`, `Reserve ${slotName(w)}`, protectPayload(w, tz, "me")));
+    // Time already reserved is not offered for reserving again; it is offered for people.
+    const open = view.best.filter((w) => w.slot !== "reserved");
+    const kept = view.best.find((w) => w.slot === "reserved");
+    const best = kept
+      ? `\nyou kept ${windowLabel(kept)} clear. want to plan something with people there?`
+      : open.length && view.totalWork
+        ? `\nyour biggest open stretch is ${windowLabel(open[0])}.`
+        : "";
+    const nudge = !kept && open.length && view.totalWork ? " want me to reserve it for you?" : "";
+    const buttons = open.slice(0, 2).map((w, i) => btn(`keep-${i}`, `Reserve ${slotName(w)}`, protectPayload(w, tz, "me")));
     push(
       botText(`${lead}${best}${nudge}${view.best.length ? tip(next, "keep") : ""}${tip(next, "picture")}`, {
         card: weekImage(view, next),
@@ -1362,19 +1369,23 @@ export function unwindNudge(user: UserRecord): { message?: ChatMessage; patch?: 
   const minutesNow = now.getHours() * 60 + now.getMinutes();
   const unwind = hmToMinutes(user.settings.protectEveningsAfter || "19:00");
   if (minutesNow < unwind || minutesNow > unwind + 90) return {};
-  const busy = user.events.some((e) => e.date === today && hmToMinutes(e.start) <= minutesNow && hmToMinutes(e.start) + e.durationMinutes > minutesNow);
+  // A reserved block is not "busy": it is the time they kept clear, so the nudge points at it.
+  const inside = (e: CalendarEvent) => e.date === today && hmToMinutes(e.start) <= minutesNow && hmToMinutes(e.start) + e.durationMinutes > minutesNow;
+  const busy = user.events.some((e) => inside(e) && !isReservedEvent(e));
   if (busy) return {};
+  const reserved = user.events.find((e) => e.date === today && isReservedEvent(e) && hmToMinutes(e.start) + e.durationMinutes > minutesNow && hmToMinutes(e.start) <= minutesNow + 90);
   const calledToday = user.events.some((e) => e.date === today && e.kind === "social");
   if (calledToday) return { patch: { lastNudgeDate: today } };
   const people = user.people ?? [];
   const idx = (user.nudgeIndex ?? 0) % Math.max(1, people.length);
   const who = people[idx];
   const group = Boolean(who && isGroup(who));
+  const kept = reserved ? `you kept ${span(reserved.start, reserved.durationMinutes)} clear tonight.` : "you're off the clock.";
   const text = who
     ? group
-      ? `you're off the clock. some time with your ${who.toLowerCase()} would be a good use of it. even half an hour.`
-      : `you're off the clock. ${who} would love to hear from you. even ten minutes counts.`
-    : "you're off the clock. a ten-minute call to someone you love counts more than it feels like it does.";
+      ? `${kept} some time with your ${who.toLowerCase()} would be a good use of it. even half an hour.`
+      : `${kept} ${who} would love to hear from you. even ten minutes counts.`
+    : `${kept} a ten-minute call to someone you love counts more than it feels like it does.`;
   const buttons = who
     ? [
         group ? btn("now", "Doing it now", `calling ${who.toLowerCase()} now`) : btn("now", `Calling ${who} now`.length <= 20 ? `Calling ${who} now` : `Call ${who} now`, `calling ${who.toLowerCase()} now`),

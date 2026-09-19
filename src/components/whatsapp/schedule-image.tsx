@@ -158,8 +158,10 @@ function DaySvg({ card, h, drag, onDragStart }: { card: Extract<ImageCard, { var
         </g>
       ))}
       {blocks.map((b, i) => {
-        const bx = x(b.startMin);
-        const bw = Math.max(4, x(b.endMin) - bx);
+        if (b.endMin <= from || b.startMin >= to) return null; // outside the strip; still listed below
+        const bx = x(Math.max(from, b.startMin));
+        const bw = Math.max(4, x(Math.min(to, b.endMin)) - bx);
+        const reserved = b.kind === "reserved";
         const dragging = Boolean(drag && b.id && drag.id === b.id);
         // Same title twice (a standing "Work" block and a marked one): the saved one is the new one.
         const hi = (card.highlight && b.title === card.highlight && (b.id || !blocks.some((o) => o.title === b.title && o.id))) || dragging;
@@ -172,10 +174,10 @@ function DaySvg({ card, h, drag, onDragStart }: { card: Extract<ImageCard, { var
               width={bw - 2}
               height={laneH - 10}
               rx="5"
-              fill={blockColor(b)}
+              fill={reserved ? "#1a1a1a" : blockColor(b)}
               opacity={dragging ? 1 : 0.95}
-              stroke={hi ? INK : b.kind === "todo" ? "#7a7a7a" : "none"}
-              strokeWidth={hi ? 2 : b.kind === "todo" ? 1 : 0}
+              stroke={hi ? INK : reserved ? ACCENT : b.kind === "todo" ? "#7a7a7a" : "none"}
+              strokeWidth={hi ? 2 : reserved ? 2 : b.kind === "todo" ? 1 : 0}
               strokeDasharray={!hi && b.kind === "todo" ? "3 3" : undefined}
               style={grab ? { cursor: dragging ? "grabbing" : "grab", touchAction: "none" } : undefined}
               onPointerDown={grab ? (e) => onDragStart!(b, e) : undefined}

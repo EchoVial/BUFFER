@@ -32,6 +32,8 @@ export interface CalendarEvent {
   notes?: string;
   flexible: boolean;
   starred?: boolean;
+  /** "Reserved for you": kept clear of work on purpose, and the first place Buffer suggests people time. */
+  reserved?: boolean;
   createdAt: string;
 }
 

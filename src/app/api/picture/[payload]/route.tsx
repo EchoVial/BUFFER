@@ -63,9 +63,11 @@ function DayCard({ card }: { card: Extract<ImageCard, { variant: "day" }> }) {
       <Header title={card.title} subtitle={card.subtitle} />
       <div style={{ position: "relative", display: "flex", width: lane, height: 84, marginTop: 30, background: "rgba(255,255,255,0.06)", borderRadius: 16 }}>
         {blocks.map((b, i) => {
+          if (b.endMin <= from || b.startMin >= to) return null; // outside the strip; still listed below
           const hi = card.highlight && b.title === card.highlight && (b.id || !dupTitle(b));
-          const left = x(b.startMin);
-          const width = Math.max(8, x(b.endMin) - left - 4);
+          const reserved = b.kind === "reserved";
+          const left = x(Math.max(from, b.startMin));
+          const width = Math.max(8, x(Math.min(to, b.endMin)) - left - 4);
           return (
             <div
               key={`${b.title}-${i}`}
@@ -76,9 +78,9 @@ function DayCard({ card }: { card: Extract<ImageCard, { variant: "day" }> }) {
                 width,
                 height: 64,
                 borderRadius: 10,
-                background: blockColor(b),
+                background: reserved ? "#1a1a1a" : blockColor(b),
                 display: "flex",
-                border: hi ? `4px solid ${INK}` : b.kind === "todo" ? "2px dashed #7a7a7a" : "none",
+                border: hi ? `4px solid ${INK}` : reserved ? `3px solid ${ACCENT}` : b.kind === "todo" ? "2px dashed #7a7a7a" : "none",
               }}
             />
           );
@@ -112,7 +114,7 @@ function DayCard({ card }: { card: Extract<ImageCard, { variant: "day" }> }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid rgba(255,255,255,0.12)", paddingTop: 18 }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           {movable ? <div style={{ width: 18, height: 18, borderRadius: 4, background: ACCENT, display: "flex", marginRight: 12 }} /> : null}
-          <div style={{ fontSize: 22, color: MUTED, display: "flex" }}>{movable ? "purple blocks: yours to move" : ""}</div>
+          <div style={{ fontSize: 22, color: MUTED, display: "flex" }}>{movable ? "purple: your plans. text me to move one" : ""}</div>
         </div>
         <div style={{ fontSize: 25, color: INK, display: "flex" }}>{card.footer}</div>
       </div>
