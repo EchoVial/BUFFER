@@ -202,6 +202,8 @@ export interface UserRecord {
   draft: ConversationDraft;
   remindedEventIds: string[];
   lastLockedEventId?: string;
+  /** Researchers and test accounts: kept out of the study dashboard and its CSV. */
+  studyHidden?: boolean;
   /** What "clear my day" removed, so *undo* can put it back. */
   lastCleared?: { date: string; events: CalendarEvent[]; dayOff: boolean };
   calendarToken?: string;

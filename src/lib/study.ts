@@ -8,6 +8,7 @@ import { isReservedEvent } from "./life";
 export interface StudyRow {
   id: string;
   name: string;
+  hidden: boolean;
   phone?: string;
   channel: "whatsapp" | "web";
   setup: string;
@@ -37,6 +38,9 @@ export interface StudyRow {
 
 const day = (iso: string) => iso.slice(0, 10);
 
+/** The study population: people on WhatsApp who have not been hidden (researchers, test accounts). */
+export const inStudy = (u: UserRecord) => Boolean(u.waPhone) && !u.studyHidden;
+
 export function studyRow(u: UserRecord): StudyRow {
   const msgs = u.messages;
   const userMsgs = msgs.filter((m) => m.role === "user");
@@ -61,6 +65,7 @@ export function studyRow(u: UserRecord): StudyRow {
   return {
     id: u.id,
     name: u.name,
+    hidden: Boolean(u.studyHidden),
     phone: u.waPhone ? `+${u.waPhone.slice(0, 2)} ***${u.waPhone.slice(-4)}` : undefined,
     channel: u.waPhone ? "whatsapp" : "web",
     setup: u.onboarding && u.onboarding !== "done" ? `at "${u.onboarding}"` : "done",

@@ -138,6 +138,8 @@ function IntentBars({ intents }: { intents: Intent[] }) {
 /** How participants are using Buffer: numbers, a fortnight of activity, one row each, transcripts, CSV. */
 export function StudyPanel({ password }: { password: string }) {
   const [rows, setRows] = useState<StudyRow[]>([]);
+  const [hidden, setHidden] = useState<StudyRow[]>([]);
+  const [showHidden, setShowHidden] = useState(false);
   const [daily, setDaily] = useState<StudyDay[]>([]);
   const [intents, setIntents] = useState<Intent[]>([]);
   const [open, setOpen] = useState<StudyRow | null>(null);
@@ -150,8 +152,9 @@ export function StudyPanel({ password }: { password: string }) {
   async function load() {
     const res = await fetch("/api/admin?study=1", { headers });
     if (!res.ok) return setError("could not load the study data");
-    const data = (await res.json()) as { rows: StudyRow[]; daily: StudyDay[]; intents: Intent[] };
+    const data = (await res.json()) as { rows: StudyRow[]; hidden: StudyRow[]; daily: StudyDay[]; intents: Intent[] };
     setRows(data.rows);
+    setHidden(data.hidden);
     setDaily(data.daily);
     setIntents(data.intents);
     const dayAgo = Date.now() - 24 * 3600 * 1000;
@@ -168,6 +171,12 @@ export function StudyPanel({ password }: { password: string }) {
     setOpen(r);
     const res = await fetch(`/api/admin?userId=${r.id}&transcript=1`, { headers });
     if (res.ok) setLines(((await res.json()) as { messages: Line[] }).messages);
+  }
+
+  async function setHiddenFor(r: StudyRow, value: boolean) {
+    await fetch("/api/admin", { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ action: "study-hide", userId: r.id, hidden: value }) });
+    if (open?.id === r.id) setOpen(null);
+    await load();
   }
 
   async function downloadCsv() {
@@ -201,7 +210,7 @@ export function StudyPanel({ password }: { password: string }) {
           <div className="text-5xl font-semibold tabular-nums text-zinc-100">{t.msgs}</div>
         </div>
         <div className="flex gap-2">
-          <Button variant="ghost" onClick={() => void load()}>
+          <Button variant="outline" className="border-zinc-700 bg-transparent text-zinc-200 hover:bg-zinc-800" onClick={() => void load()}>
             Refresh
           </Button>
           <Button onClick={() => void downloadCsv()}>Download CSV</Button>
@@ -223,9 +232,9 @@ export function StudyPanel({ password }: { password: string }) {
           <CardHeader className="flex flex-row items-start justify-between">
             <div>
               <CardTitle className="text-zinc-100">Messages per day</CardTitle>
-              <CardDescription>from participants, last 14 days. hover a day for the rest.</CardDescription>
+              <CardDescription className="text-zinc-400">from participants, last 14 days. hover a day for the rest.</CardDescription>
             </div>
-            <Button variant="ghost" size="sm" onClick={() => setShowTable((v) => !v)}>
+            <Button variant="outline" size="sm" className="border-zinc-700 bg-transparent text-zinc-200 hover:bg-zinc-800" onClick={() => setShowTable((v) => !v)}>
               {showTable ? "Chart" : "Table"}
             </Button>
           </CardHeader>
@@ -234,23 +243,23 @@ export function StudyPanel({ password }: { password: string }) {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Day</TableHead>
-                    <TableHead>From people</TableHead>
-                    <TableHead>From Buffer</TableHead>
-                    <TableHead>Nudges</TableHead>
-                    <TableHead>Answered</TableHead>
-                    <TableHead>People active</TableHead>
+                    <TableHead className="text-zinc-400">Day</TableHead>
+                    <TableHead className="text-zinc-400">From people</TableHead>
+                    <TableHead className="text-zinc-400">From Buffer</TableHead>
+                    <TableHead className="text-zinc-400">Nudges</TableHead>
+                    <TableHead className="text-zinc-400">Answered</TableHead>
+                    <TableHead className="text-zinc-400">People active</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {daily.map((d) => (
                     <TableRow key={d.date}>
-                      <TableCell>{dayLabel(d.date)}</TableCell>
-                      <TableCell>{d.userMessages}</TableCell>
-                      <TableCell>{d.botMessages}</TableCell>
-                      <TableCell>{d.nudges}</TableCell>
-                      <TableCell>{d.nudgeReplies}</TableCell>
-                      <TableCell>{d.activePeople}</TableCell>
+                      <TableCell className="text-zinc-200">{dayLabel(d.date)}</TableCell>
+                      <TableCell className="text-zinc-200">{d.userMessages}</TableCell>
+                      <TableCell className="text-zinc-200">{d.botMessages}</TableCell>
+                      <TableCell className="text-zinc-200">{d.nudges}</TableCell>
+                      <TableCell className="text-zinc-200">{d.nudgeReplies}</TableCell>
+                      <TableCell className="text-zinc-200">{d.activePeople}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -263,7 +272,7 @@ export function StudyPanel({ password }: { password: string }) {
         <Card className="border-zinc-800 bg-zinc-900">
           <CardHeader>
             <CardTitle className="text-zinc-100">What they ask for</CardTitle>
-            <CardDescription>what Buffer made of each message, all participants.</CardDescription>
+            <CardDescription className="text-zinc-400">what Buffer made of each message, all participants.</CardDescription>
           </CardHeader>
           <CardContent>
             <IntentBars intents={intents} />
@@ -275,51 +284,70 @@ export function StudyPanel({ password }: { password: string }) {
         <Card className="border-zinc-800 bg-zinc-900">
           <CardHeader>
             <CardTitle className="text-zinc-100">Participants</CardTitle>
-            <CardDescription>click a row for the whole conversation.</CardDescription>
+            <CardDescription className="text-zinc-400">
+              whatsapp only. click a row for the whole conversation; Hide keeps researchers and test accounts out of every number here.
+              {hidden.length ? (
+                <button className="ml-2 underline" onClick={() => setShowHidden((v) => !v)}>
+                  {showHidden ? "hide the hidden" : `show ${hidden.length} hidden`}
+                </button>
+              ) : null}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Who</TableHead>
-                  <TableHead>Setup</TableHead>
-                  <TableHead>Msgs</TableHead>
-                  <TableHead>Days</TableHead>
-                  <TableHead>Work / people / reserved</TableHead>
-                  <TableHead>Nudges</TableHead>
-                  <TableHead>People</TableHead>
-                  <TableHead>Last seen</TableHead>
+                  <TableHead className="text-zinc-400">Who</TableHead>
+                  <TableHead className="text-zinc-400">Setup</TableHead>
+                  <TableHead className="text-zinc-400">Msgs</TableHead>
+                  <TableHead className="text-zinc-400">Days</TableHead>
+                  <TableHead className="text-zinc-400">Work / people / reserved</TableHead>
+                  <TableHead className="text-zinc-400">Nudges</TableHead>
+                  <TableHead className="text-zinc-400">People</TableHead>
+                  <TableHead className="text-zinc-400">Last seen</TableHead>
+                  <TableHead className="text-zinc-400"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((r) => (
-                  <TableRow key={r.id} className={`cursor-pointer hover:bg-zinc-800/60 ${open?.id === r.id ? "bg-zinc-800/60" : ""}`} onClick={() => void openRow(r)}>
-                    <TableCell>
-                      <div className="font-medium">{r.name}</div>
+                {[...rows, ...(showHidden ? hidden : [])].map((r) => (
+                  <TableRow key={r.id} className={`cursor-pointer hover:bg-zinc-800/60 ${open?.id === r.id ? "bg-zinc-800/60" : ""} ${r.hidden ? "opacity-50" : ""}`} onClick={() => void openRow(r)}>
+                    <TableCell className="text-zinc-200">
+                      <div className="font-medium text-zinc-100">{r.name}</div>
                       <div className="text-xs text-zinc-500">{r.phone ?? "web"}</div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="text-zinc-200">
                       <Badge variant={r.setup === "done" ? "secondary" : "outline"}>{r.setup}</Badge>
                       <div className="text-xs text-zinc-500">
                         {r.workHours} · off {r.switchOff}
                       </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="text-zinc-200">
                       {r.userMessages}
                       <div className="text-xs text-zinc-500">{r.buttonTaps} taps</div>
                     </TableCell>
-                    <TableCell>{r.activeDays}</TableCell>
-                    <TableCell>
+                    <TableCell className="text-zinc-200">{r.activeDays}</TableCell>
+                    <TableCell className="text-zinc-200">
                       {r.workEvents} / <span style={{ color: ACCENT }}>{r.socialEvents}</span> / {r.reservedEvents}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="text-zinc-200">
                       {r.nudges} sent · {r.nudgeReplies} answered · {r.nudgeCalls} calls
                       <div className="text-xs text-zinc-500">
                         nudges {r.notify} · {r.digests} morning pictures · calendar {r.calendar}
                       </div>
                     </TableCell>
-                    <TableCell className="text-xs">{r.people.join(", ") || "none"}</TableCell>
+                    <TableCell className="text-xs text-zinc-200">{r.people.join(", ") || "none"}</TableCell>
                     <TableCell className="text-xs text-zinc-400">{when(r.lastSeen)}</TableCell>
+                    <TableCell className="text-xs text-zinc-200">
+                      <button
+                        className="text-zinc-400 underline hover:text-zinc-200"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void setHiddenFor(r, !r.hidden);
+                        }}
+                      >
+                        {r.hidden ? "Show" : "Hide"}
+                      </button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -330,7 +358,7 @@ export function StudyPanel({ password }: { password: string }) {
         <Card className="border-zinc-800 bg-zinc-900">
           <CardHeader>
             <CardTitle className="text-zinc-100">{open ? `${open.name}'s chat` : "Pick a participant"}</CardTitle>
-            <CardDescription>
+            <CardDescription className="text-zinc-400">
               {open
                 ? `${open.channel} · ${Object.entries(open.intents)
                     .sort((a, b) => b[1] - a[1])

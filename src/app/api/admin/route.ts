@@ -11,7 +11,7 @@ import {
   upsertUser,
 } from "@/lib/store";
 import { DEFAULT_USER_SETTINGS, UserSettings } from "@/lib/types";
-import { studyDaily, studyIntents, studyRow, transcript, transcriptCsv } from "@/lib/study";
+import { inStudy, studyDaily, studyIntents, studyRow, transcript, transcriptCsv } from "@/lib/study";
 
 export const dynamic = "force-dynamic";
 
@@ -49,11 +49,12 @@ export async function GET(req: NextRequest) {
   const id = q.get("userId");
   // The study view: one row per participant, a readable transcript, or everything as CSV.
   if (q.get("study")) {
-    const users = await listUsers();
-    return NextResponse.json({ rows: users.map(studyRow), daily: studyDaily(users), intents: studyIntents(users) });
+    const all = (await listUsers()).filter((u) => u.waPhone);
+    const users = all.filter(inStudy);
+    return NextResponse.json({ rows: users.map(studyRow), hidden: all.filter((u) => u.studyHidden).map(studyRow), daily: studyDaily(users), intents: studyIntents(users) });
   }
   if (q.get("csv")) {
-    return new NextResponse(transcriptCsv(await listUsers()), {
+    return new NextResponse(transcriptCsv((await listUsers()).filter(inStudy)), {
       headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="buffer-transcripts-${new Date().toISOString().slice(0, 10)}.csv"` },
     });
   }
@@ -103,6 +104,7 @@ export async function POST(req: NextRequest) {
     notes?: string;
     settings?: Partial<UserSettings>;
     userId?: string;
+    hidden?: boolean;
     appSettings?: Parameters<typeof patchAppSettings>[0];
     defaultUserSettings?: Partial<UserSettings>;
   };
@@ -127,6 +129,12 @@ export async function POST(req: NextRequest) {
       },
     });
     return NextResponse.json({ settings });
+  }
+  if (body.action === "study-hide" && body.userId) {
+    const user = await getUserById(body.userId);
+    if (!user) return NextResponse.json({ error: "not found" }, { status: 404 });
+    await upsertUser({ ...user, studyHidden: Boolean(body.hidden) });
+    return NextResponse.json({ ok: true });
   }
   if (body.action === "patch-user" && body.userId) {
     const user = await getUserById(body.userId);

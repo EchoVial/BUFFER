@@ -164,7 +164,7 @@ export function AdminDashboard() {
           <h1 className="text-lg font-semibold">Users, parameters, NLP debug</h1>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" render={<Link href="/" />}>
+          <Button variant="outline" className="border-zinc-700 bg-transparent text-zinc-200 hover:bg-zinc-800" render={<Link href="/" />}>
             Open chat
           </Button>
           <Button
