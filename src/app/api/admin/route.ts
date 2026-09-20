@@ -11,7 +11,7 @@ import {
   upsertUser,
 } from "@/lib/store";
 import { DEFAULT_USER_SETTINGS, UserSettings } from "@/lib/types";
-import { studyRow, transcript, transcriptCsv } from "@/lib/study";
+import { studyDaily, studyIntents, studyRow, transcript, transcriptCsv } from "@/lib/study";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +48,10 @@ export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams;
   const id = q.get("userId");
   // The study view: one row per participant, a readable transcript, or everything as CSV.
-  if (q.get("study")) return NextResponse.json({ rows: (await listUsers()).map(studyRow) });
+  if (q.get("study")) {
+    const users = await listUsers();
+    return NextResponse.json({ rows: users.map(studyRow), daily: studyDaily(users), intents: studyIntents(users) });
+  }
   if (q.get("csv")) {
     return new NextResponse(transcriptCsv(await listUsers()), {
       headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="buffer-transcripts-${new Date().toISOString().slice(0, 10)}.csv"` },

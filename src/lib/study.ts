@@ -129,3 +129,53 @@ export function transcript(u: UserRecord): Array<Pick<ChatMessage, "id" | "role"
     picture: m.card?.type === "image" ? m.card.variant : undefined,
   }));
 }
+
+export interface StudyDay {
+  date: string;
+  userMessages: number;
+  botMessages: number;
+  nudges: number;
+  nudgeReplies: number;
+  activePeople: number;
+}
+
+/** The last `days` days across everyone: how much talking, how many nudges, how many people showed up. */
+export function studyDaily(users: UserRecord[], days = 14, tz = "Asia/Kolkata"): StudyDay[] {
+  const local = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: tz });
+  const today = local(new Date().toISOString());
+  const out = new Map<string, StudyDay & { people: Set<string> }>();
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(`${today}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    out.set(key, { date: key, userMessages: 0, botMessages: 0, nudges: 0, nudgeReplies: 0, activePeople: 0, people: new Set() });
+  }
+  for (const u of users) {
+    const userMsgs = u.messages.filter((m) => m.role === "user");
+    for (const m of u.messages) {
+      const row = out.get(local(m.createdAt));
+      if (!row) continue;
+      if (m.role === "user") {
+        row.userMessages++;
+        row.people.add(u.id);
+      } else {
+        row.botMessages++;
+        if (m.tag === "nudge") {
+          row.nudges++;
+          const t = new Date(m.createdAt).getTime();
+          if (userMsgs.some((r) => new Date(r.createdAt).getTime() > t && new Date(r.createdAt).getTime() - t < 3 * 3600 * 1000)) row.nudgeReplies++;
+        }
+      }
+    }
+  }
+  return [...out.values()].map(({ people, ...row }) => ({ ...row, activePeople: people.size }));
+}
+
+/** What people asked Buffer to do, across everyone. */
+export function studyIntents(users: UserRecord[]): Array<{ intent: string; count: number }> {
+  const totals: Record<string, number> = {};
+  for (const u of users) for (const m of u.messages) if (m.role === "user") totals[m.intent ?? "unknown"] = (totals[m.intent ?? "unknown"] ?? 0) + 1;
+  return Object.entries(totals)
+    .map(([intent, count]) => ({ intent, count }))
+    .sort((a, b) => b.count - a.count);
+}

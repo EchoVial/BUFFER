@@ -1,28 +1,161 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { StudyRow } from "@/lib/study";
+import type { StudyDay, StudyRow } from "@/lib/study";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 
 type Line = { id: string; role: string; text: string; createdAt: string; intent?: string; tag?: string; buttons?: string[]; picture?: string };
+type Intent = { intent: string; count: number };
+
+const ACCENT = "#8B84E8";
+const ACCENT_DIM = "#3a3766";
+const GRID = "#27272a";
 
 const when = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+const dayLabel = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+const INTENT_WORDS: Record<string, string> = {
+  fast: "button or command",
+  setup: "setup answer",
+  add_event: "add a plan",
+  add_work: "mark work",
+  set_pref: "change hours or settings",
+  week: "see the week",
+  schedule: "see a day",
+  plan_free: "plan people time",
+  protect: "reserve time",
+  question: "ask Buffer something",
+  chitchat: "chat",
+  greet: "hello",
+  day_off: "a day off",
+  calendar: "calendar",
+  add_todo: "add a to-do",
+  edit_item: "change a plan",
+  complete_todo: "finish a to-do",
+  unknown: "not understood",
+};
 
-/** How participants are using Buffer: one row each, a readable transcript on click, CSV of everything. */
+/** A single number with its label: the dashboard's atoms. */
+function Stat({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
+  return (
+    <div className="rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3">
+      <div className="text-xs text-zinc-400">{label}</div>
+      <div className="mt-1 text-2xl font-semibold tabular-nums text-zinc-100">{value}</div>
+      {sub ? <div className="mt-0.5 text-xs text-zinc-500">{sub}</div> : null}
+    </div>
+  );
+}
+
+/** Messages from participants per day: one series, thin columns, hover for the rest. */
+function DailyChart({ days }: { days: StudyDay[] }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const W = 640;
+  const H = 180;
+  const padL = 32;
+  const padB = 26;
+  const padT = 14;
+  const max = Math.max(4, ...days.map((d) => d.userMessages));
+  const tick = max <= 8 ? 2 : max <= 20 ? 5 : max <= 50 ? 10 : 25;
+  const top = Math.ceil(max / tick) * tick;
+  const slot = (W - padL) / days.length;
+  const bw = Math.min(24, slot - 6);
+  const y = (v: number) => padT + (H - padT - padB) * (1 - v / top);
+  const peak = days.reduce((best, d, i) => (d.userMessages > days[best].userMessages ? i : best), 0);
+  const h = hover !== null ? days[hover] : null;
+  return (
+    <div className="relative">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Participant messages per day">
+        {Array.from({ length: top / tick + 1 }, (_, i) => i * tick).map((v) => (
+          <g key={v}>
+            <line x1={padL} x2={W} y1={y(v)} y2={y(v)} stroke={GRID} strokeWidth="1" />
+            <text x={padL - 6} y={y(v) + 4} textAnchor="end" fontSize="10" fill="#71717a">
+              {v}
+            </text>
+          </g>
+        ))}
+        {days.map((d, i) => {
+          const x = padL + i * slot + (slot - bw) / 2;
+          const hgt = Math.max(0, y(0) - y(d.userMessages));
+          const isHover = hover === i;
+          return (
+            <g key={d.date} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
+              <rect x={padL + i * slot} y={padT} width={slot} height={H - padT - padB} fill="transparent" />
+              {d.userMessages > 0 ? (
+                <path
+                  d={`M${x},${y(0)} v${-(hgt - 4)} a4,4 0 0 1 4,-4 h${bw - 8} a4,4 0 0 1 4,4 v${hgt - 4} z`}
+                  fill={isHover || i === peak ? ACCENT : ACCENT_DIM}
+                />
+              ) : null}
+              {i === peak && d.userMessages > 0 ? (
+                <text x={x + bw / 2} y={y(d.userMessages) - 5} textAnchor="middle" fontSize="10" fill="#d4d4d8">
+                  {d.userMessages}
+                </text>
+              ) : null}
+              <text x={padL + i * slot + slot / 2} y={H - 8} textAnchor="middle" fontSize="10" fill={i === days.length - 1 ? "#d4d4d8" : "#71717a"}>
+                {i % 2 === days.length % 2 ? dayLabel(d.date).split(" ")[0] : ""}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      {h ? (
+        <div className="pointer-events-none absolute right-2 top-0 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs text-zinc-200 shadow">
+          <div className="font-medium">{dayLabel(h.date)}</div>
+          <div>{h.userMessages} messages from {h.activePeople} {h.activePeople === 1 ? "person" : "people"}</div>
+          <div className="text-zinc-400">
+            {h.botMessages} from Buffer · {h.nudges} nudges, {h.nudgeReplies} answered
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** What people asked for, most to least: horizontal bars, value at the tip. */
+function IntentBars({ intents }: { intents: Intent[] }) {
+  const top = intents.slice(0, 8);
+  const max = Math.max(1, ...top.map((i) => i.count));
+  return (
+    <div className="space-y-2">
+      {top.map((i) => (
+        <div key={i.intent} className="grid grid-cols-[150px_1fr_36px] items-center gap-3 text-xs">
+          <div className="truncate text-zinc-300" title={i.intent}>
+            {INTENT_WORDS[i.intent] ?? i.intent}
+          </div>
+          <div className="h-3 rounded-r-[4px] bg-zinc-800">
+            <div className="h-3 rounded-r-[4px]" style={{ width: `${Math.max(2, (i.count / max) * 100)}%`, background: ACCENT }} />
+          </div>
+          <div className="tabular-nums text-zinc-400">{i.count}</div>
+        </div>
+      ))}
+      {!top.length ? <div className="text-xs text-zinc-500">nothing yet</div> : null}
+    </div>
+  );
+}
+
+/** How participants are using Buffer: numbers, a fortnight of activity, one row each, transcripts, CSV. */
 export function StudyPanel({ password }: { password: string }) {
   const [rows, setRows] = useState<StudyRow[]>([]);
+  const [daily, setDaily] = useState<StudyDay[]>([]);
+  const [intents, setIntents] = useState<Intent[]>([]);
   const [open, setOpen] = useState<StudyRow | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [showTable, setShowTable] = useState(false);
+  const [activeCount, setActiveCount] = useState(0);
   const headers = { "x-admin-password": password };
 
   async function load() {
     const res = await fetch("/api/admin?study=1", { headers });
-    if (!res.ok) return setError("could not load the study rows");
-    setRows(((await res.json()) as { rows: StudyRow[] }).rows);
+    if (!res.ok) return setError("could not load the study data");
+    const data = (await res.json()) as { rows: StudyRow[]; daily: StudyDay[]; intents: Intent[] };
+    setRows(data.rows);
+    setDaily(data.daily);
+    setIntents(data.intents);
+    const dayAgo = Date.now() - 24 * 3600 * 1000;
+    setActiveCount(data.rows.filter((r) => new Date(r.lastSeen).getTime() > dayAgo).length);
   }
   useEffect(() => {
     // Same shape as the dashboard: load after the first paint, not inside the effect body.
@@ -47,104 +180,182 @@ export function StudyPanel({ password }: { password: string }) {
     URL.revokeObjectURL(a.href);
   }
 
-  const totals = rows.reduce(
-    (t, r) => ({ msgs: t.msgs + r.userMessages, nudges: t.nudges + r.nudges, replies: t.replies + r.nudgeReplies, social: t.social + r.socialEvents }),
-    { msgs: 0, nudges: 0, replies: 0, social: 0 },
+  const t = rows.reduce(
+    (acc, r) => ({
+      msgs: acc.msgs + r.userMessages,
+      nudges: acc.nudges + r.nudges,
+      replies: acc.replies + r.nudgeReplies,
+      calls: acc.calls + r.nudgeCalls,
+      social: acc.social + r.socialEvents,
+      reserved: acc.reserved + r.reservedEvents,
+      setup: acc.setup + (r.setup === "done" ? 1 : 0),
+    }),
+    { msgs: 0, nudges: 0, replies: 0, calls: 0, social: 0, reserved: 0, setup: 0 },
   );
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-      <Card className="border-zinc-800 bg-zinc-900">
-        <CardHeader className="flex flex-row items-start justify-between gap-4">
-          <div>
-            <CardTitle>Participants</CardTitle>
-            <CardDescription>
-              {rows.length} people · {totals.msgs} messages from them · {totals.nudges} nudges sent, {totals.replies} answered · {totals.social} plans with people
-            </CardDescription>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => void load()}>
-              Refresh
-            </Button>
-            <Button onClick={() => void downloadCsv()}>Download CSV</Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {error && <p className="text-sm text-red-400">{error}</p>}
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Who</TableHead>
-                <TableHead>Setup</TableHead>
-                <TableHead>Msgs</TableHead>
-                <TableHead>Days</TableHead>
-                <TableHead>Work / people / reserved</TableHead>
-                <TableHead>Nudges</TableHead>
-                <TableHead>People</TableHead>
-                <TableHead>Last seen</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((r) => (
-                <TableRow key={r.id} className="cursor-pointer hover:bg-zinc-800/60" onClick={() => void openRow(r)}>
-                  <TableCell>
-                    <div className="font-medium">{r.name}</div>
-                    <div className="text-xs text-zinc-500">{r.phone ?? "web"}</div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={r.setup === "done" ? "secondary" : "outline"}>{r.setup}</Badge>
-                    <div className="text-xs text-zinc-500">{r.workHours} · off {r.switchOff}</div>
-                  </TableCell>
-                  <TableCell>
-                    {r.userMessages}
-                    <div className="text-xs text-zinc-500">{r.buttonTaps} taps</div>
-                  </TableCell>
-                  <TableCell>{r.activeDays}</TableCell>
-                  <TableCell>
-                    {r.workEvents} / <span className="text-violet-300">{r.socialEvents}</span> / {r.reservedEvents}
-                  </TableCell>
-                  <TableCell>
-                    {r.nudges} sent · {r.nudgeReplies} answered · {r.nudgeCalls} calls
-                    <div className="text-xs text-zinc-500">
-                      nudges {r.notify} · {r.digests} morning pictures
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-xs">{r.people.join(", ") || "none"}</TableCell>
-                  <TableCell className="text-xs text-zinc-400">{when(r.lastSeen)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="text-xs text-zinc-400">messages from participants</div>
+          <div className="text-5xl font-semibold tabular-nums text-zinc-100">{t.msgs}</div>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="ghost" onClick={() => void load()}>
+            Refresh
+          </Button>
+          <Button onClick={() => void downloadCsv()}>Download CSV</Button>
+        </div>
+      </div>
+      {error && <p className="text-sm text-red-400">{error}</p>}
 
-      <Card className="border-zinc-800 bg-zinc-900">
-        <CardHeader>
-          <CardTitle>{open ? `${open.name}'s chat` : "Pick a participant"}</CardTitle>
-          <CardDescription>
-            {open
-              ? `${open.channel} · calendar: ${open.calendar} · intents: ${Object.entries(open.intents)
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([k, v]) => `${k} ${v}`)
-                  .join(", ")}`
-              : "Every message with what Buffer made of it."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="max-h-[70vh] space-y-2 overflow-y-auto text-sm">
-          {lines.map((m) => (
-            <div key={m.id} className={m.role === "user" ? "ml-10 rounded-lg bg-emerald-900/40 p-2" : "mr-10 rounded-lg bg-zinc-800 p-2"}>
-              <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
-                <span>{when(m.createdAt)}</span>
-                {m.intent && <Badge variant="outline">{m.intent}</Badge>}
-                {m.tag && <Badge variant="secondary">{m.tag}</Badge>}
-                {m.picture && <Badge variant="outline">picture: {m.picture}</Badge>}
-              </div>
-              <div className="whitespace-pre-wrap">{m.text}</div>
-              {m.buttons?.length ? <div className="mt-1 text-xs text-zinc-500">[{m.buttons.join("] [")}]</div> : null}
+      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <Stat label="participants" value={rows.length} sub={`${t.setup} finished setup`} />
+        <Stat label="active in last 24h" value={activeCount} />
+        <Stat label="nudges sent" value={t.nudges} />
+        <Stat label="nudges answered" value={t.replies} sub={t.nudges ? `${Math.round((t.replies / t.nudges) * 100)}% of sent` : undefined} />
+        <Stat label="calls from a nudge" value={t.calls} />
+        <Stat label="plans with people" value={t.social} sub={`${t.reserved} reserved blocks`} />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+        <Card className="border-zinc-800 bg-zinc-900">
+          <CardHeader className="flex flex-row items-start justify-between">
+            <div>
+              <CardTitle className="text-zinc-100">Messages per day</CardTitle>
+              <CardDescription>from participants, last 14 days. hover a day for the rest.</CardDescription>
             </div>
-          ))}
-        </CardContent>
-      </Card>
+            <Button variant="ghost" size="sm" onClick={() => setShowTable((v) => !v)}>
+              {showTable ? "Chart" : "Table"}
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {showTable ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Day</TableHead>
+                    <TableHead>From people</TableHead>
+                    <TableHead>From Buffer</TableHead>
+                    <TableHead>Nudges</TableHead>
+                    <TableHead>Answered</TableHead>
+                    <TableHead>People active</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {daily.map((d) => (
+                    <TableRow key={d.date}>
+                      <TableCell>{dayLabel(d.date)}</TableCell>
+                      <TableCell>{d.userMessages}</TableCell>
+                      <TableCell>{d.botMessages}</TableCell>
+                      <TableCell>{d.nudges}</TableCell>
+                      <TableCell>{d.nudgeReplies}</TableCell>
+                      <TableCell>{d.activePeople}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <DailyChart days={daily} />
+            )}
+          </CardContent>
+        </Card>
+        <Card className="border-zinc-800 bg-zinc-900">
+          <CardHeader>
+            <CardTitle className="text-zinc-100">What they ask for</CardTitle>
+            <CardDescription>what Buffer made of each message, all participants.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <IntentBars intents={intents} />
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+        <Card className="border-zinc-800 bg-zinc-900">
+          <CardHeader>
+            <CardTitle className="text-zinc-100">Participants</CardTitle>
+            <CardDescription>click a row for the whole conversation.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Who</TableHead>
+                  <TableHead>Setup</TableHead>
+                  <TableHead>Msgs</TableHead>
+                  <TableHead>Days</TableHead>
+                  <TableHead>Work / people / reserved</TableHead>
+                  <TableHead>Nudges</TableHead>
+                  <TableHead>People</TableHead>
+                  <TableHead>Last seen</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((r) => (
+                  <TableRow key={r.id} className={`cursor-pointer hover:bg-zinc-800/60 ${open?.id === r.id ? "bg-zinc-800/60" : ""}`} onClick={() => void openRow(r)}>
+                    <TableCell>
+                      <div className="font-medium">{r.name}</div>
+                      <div className="text-xs text-zinc-500">{r.phone ?? "web"}</div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={r.setup === "done" ? "secondary" : "outline"}>{r.setup}</Badge>
+                      <div className="text-xs text-zinc-500">
+                        {r.workHours} · off {r.switchOff}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {r.userMessages}
+                      <div className="text-xs text-zinc-500">{r.buttonTaps} taps</div>
+                    </TableCell>
+                    <TableCell>{r.activeDays}</TableCell>
+                    <TableCell>
+                      {r.workEvents} / <span style={{ color: ACCENT }}>{r.socialEvents}</span> / {r.reservedEvents}
+                    </TableCell>
+                    <TableCell>
+                      {r.nudges} sent · {r.nudgeReplies} answered · {r.nudgeCalls} calls
+                      <div className="text-xs text-zinc-500">
+                        nudges {r.notify} · {r.digests} morning pictures · calendar {r.calendar}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs">{r.people.join(", ") || "none"}</TableCell>
+                    <TableCell className="text-xs text-zinc-400">{when(r.lastSeen)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <Card className="border-zinc-800 bg-zinc-900">
+          <CardHeader>
+            <CardTitle className="text-zinc-100">{open ? `${open.name}'s chat` : "Pick a participant"}</CardTitle>
+            <CardDescription>
+              {open
+                ? `${open.channel} · ${Object.entries(open.intents)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 5)
+                    .map(([k, v]) => `${INTENT_WORDS[k] ?? k} ${v}`)
+                    .join(" · ")}`
+                : "every message with what Buffer made of it."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="max-h-[70vh] space-y-2 overflow-y-auto text-sm">
+            {lines.map((m) => (
+              <div key={m.id} className={m.role === "user" ? "ml-10 rounded-lg bg-emerald-900/40 p-2" : "mr-10 rounded-lg bg-zinc-800 p-2"}>
+                <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
+                  <span>{when(m.createdAt)}</span>
+                  {m.intent && <Badge variant="outline">{INTENT_WORDS[m.intent] ?? m.intent}</Badge>}
+                  {m.tag && <Badge variant="secondary">{m.tag}</Badge>}
+                  {m.picture && <Badge variant="outline">picture: {m.picture}</Badge>}
+                </div>
+                <div className="whitespace-pre-wrap">{m.text}</div>
+                {m.buttons?.length ? <div className="mt-1 text-xs text-zinc-500">[{m.buttons.join("] [")}]</div> : null}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
