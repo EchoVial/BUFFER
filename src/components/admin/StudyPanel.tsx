@@ -316,7 +316,7 @@ export function StudyPanel({ password }: { password: string }) {
                       <div className="text-xs text-zinc-500">{r.phone ?? "web"}</div>
                     </TableCell>
                     <TableCell className="text-zinc-200">
-                      <Badge variant={r.setup === "done" ? "secondary" : "outline"}>{r.setup}</Badge>
+                      <Badge variant="outline" className={r.setup === "done" ? "border-zinc-600 bg-zinc-800 text-zinc-100" : "border-amber-700 bg-transparent text-amber-300"}>{r.setup}</Badge>
                       <div className="text-xs text-zinc-500">
                         {r.workHours} · off {r.switchOff}
                       </div>
@@ -373,11 +373,11 @@ export function StudyPanel({ password }: { password: string }) {
               <div key={m.id} className={m.role === "user" ? "ml-10 rounded-lg bg-emerald-900/40 p-2" : "mr-10 rounded-lg bg-zinc-800 p-2"}>
                 <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
                   <span>{when(m.createdAt)}</span>
-                  {m.intent && <Badge variant="outline">{INTENT_WORDS[m.intent] ?? m.intent}</Badge>}
-                  {m.tag && <Badge variant="secondary">{m.tag}</Badge>}
-                  {m.picture && <Badge variant="outline">picture: {m.picture}</Badge>}
+                  {m.intent && <Badge variant="outline" className="border-zinc-600 bg-transparent text-zinc-200">{INTENT_WORDS[m.intent] ?? m.intent}</Badge>}
+                  {m.tag && <Badge variant="outline" className="border-violet-500 bg-violet-950 text-violet-200">{m.tag}</Badge>}
+                  {m.picture && <Badge variant="outline" className="border-zinc-600 bg-transparent text-zinc-200">picture: {m.picture}</Badge>}
                 </div>
-                <div className="whitespace-pre-wrap">{m.text}</div>
+                <div className="whitespace-pre-wrap text-zinc-100">{m.text}</div>
                 {m.buttons?.length ? <div className="mt-1 text-xs text-zinc-500">[{m.buttons.join("] [")}]</div> : null}
               </div>
             ))}
