@@ -327,6 +327,10 @@ function parseDuration(text: string): number | undefined {
 function parseKind(text: string): EventKind | undefined {
   if (/\b(social|friends|friend|hangout|hang|date|party|dinner|brunch|drinks|catch up|catch-up|coffee with|people)\b/.test(text))
     return "social";
+  // Ringing someone you love is the point of Buffer: "call home", "call mum", "facetime nani", "video call dad".
+  if (/\b(call|ring|phone|facetime|video ?call|skype|text|visit|see)\s+(home|mum|mom|dad|papa|mama|amma|appa|nani|nana|dadi|dada|grandma|grandpa|granny|parents|family|my (?:mum|mom|dad|sister|brother|parents|family|cousin|friend|best friend|partner|girlfriend|boyfriend))\b/.test(text))
+    return "social";
+  if (/\b(call|ring|phone|facetime)\s+[a-z]+$/.test(text.trim()) && !/\b(call with|client|boss|team|work)\b/.test(text)) return "social";
   if (/\b(gym|run|yoga|walk|doctor|health|therapy|sleep)\b/.test(text)) return "health";
   if (/\b(work|meeting|standup|stand-up|sync|deadline|sprint|deep work|focus|client|boss|office|zoom|call with|class|classes|lecture|lectures|lab|college|school|uni|university|shift|internship)\b/.test(text))
     return "work";

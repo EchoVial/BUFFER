@@ -77,7 +77,7 @@ export const UnderstandingSchema = z.object({
     .nullable()
     .describe("For clarify: up to 3 quick-reply buttons (2-3 plain words); payload is the full text to send back as if the user typed it."),
   title: z.string().nullable().describe("Clean event/to-do title in Title case, without the time words. Null if none."),
-  kind: z.enum(KINDS).nullable().describe("work = job/study; social = people; health = body; personal = rest, chores, hobbies, alone time."),
+  kind: z.enum(KINDS).nullable().describe("work = job/study; social = people, including any call or visit to family or a friend (call home, call mum, facetime nani, dinner with sam); health = body; personal = rest, chores, hobbies, alone time."),
   date: z.string().nullable().describe("YYYY-MM-DD in the user's timezone, resolved from words like tomorrow / thu / next week. Null if not given."),
   start: z.string().nullable().describe("HH:MM 24h start time. Null if not given."),
   duration_minutes: z.number().int().positive().nullable(),

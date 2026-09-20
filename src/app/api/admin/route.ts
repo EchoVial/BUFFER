@@ -12,7 +12,7 @@ import {
 } from "@/lib/store";
 import { DEFAULT_USER_SETTINGS, UserSettings } from "@/lib/types";
 import { inStudy, studyDaily, studyIntents, studyRow, transcript, transcriptCsv } from "@/lib/study";
-import { setupNudge } from "@/lib/bot";
+import { botText, setupNudge } from "@/lib/bot";
 import { deliver, ensureTemplate, lastSendError, sendTemplate, waConfigured } from "@/lib/wa";
 import { originFromRequest } from "@/lib/calendar";
 
@@ -111,6 +111,7 @@ export async function POST(req: NextRequest) {
     settings?: Partial<UserSettings>;
     userId?: string;
     hidden?: boolean;
+    text?: string;
     appSettings?: Parameters<typeof patchAppSettings>[0];
     defaultUserSettings?: Partial<UserSettings>;
   };
@@ -161,6 +162,16 @@ export async function POST(req: NextRequest) {
       results.push({ name: user.name, how });
     }
     return NextResponse.json({ ok: true, pending: pending.length, template, results });
+  }
+  // A researcher's own message to one participant, sent as Buffer and kept in the transcript.
+  if (body.action === "send-message" && body.userId && body.text?.trim()) {
+    const user = await getUserById(body.userId);
+    if (!user?.waPhone) return NextResponse.json({ error: "not a WhatsApp participant" }, { status: 400 });
+    const msg = { ...botText(body.text.trim()), tag: "nudge" as const };
+    await deliver(user, msg, originFromRequest(req));
+    if (lastSendError) return NextResponse.json({ error: `WhatsApp refused it: ${lastSendError.code ?? ""} ${lastSendError.message ?? ""}`.trim() }, { status: 502 });
+    await upsertUser({ ...user, messages: [...user.messages, msg], updatedAt: new Date().toISOString() });
+    return NextResponse.json({ ok: true });
   }
   if (body.action === "study-hide" && body.userId) {
     const user = await getUserById(body.userId);

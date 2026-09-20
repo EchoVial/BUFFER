@@ -947,6 +947,39 @@ export async function processTurn(user: UserRecord, text: string): Promise<{ use
     );
     return done();
   }
+  // Replies to a plan reminder: "did Call Home", "push Call Home 30 min later", "skip Call Home today".
+  const didIt = lower.match(/^did (.+)$/);
+  if (didIt) {
+    const ev = next.events.find((e) => e.date === todayISO && e.title.toLowerCase() === didIt[1].trim()) ?? next.events.find((e) => e.title.toLowerCase() === didIt[1].trim());
+    const FAMILY = /\b(home|mum|mom|dad|papa|mama|amma|appa|nani|nana|dadi|dada|grandma|grandpa|granny|parents|family)\b/i;
+    const who = (next.people ?? []).find((p) => didIt[1].includes(p.toLowerCase()));
+    if (who) touch(next, who, todayISO);
+    // "call home" is everyone at home: log it for each family member on their list
+    if (FAMILY.test(didIt[1])) for (const p of next.people ?? []) if (FAMILY.test(p)) touch(next, p, todayISO);
+    if (ev) touch(next, ev.title.replace(/^(call|time with|dinner with|coffee with)\s+/i, ""), todayISO);
+    push(botText(ev || who ? "good. that's the bit that matters." : "noted.", { buttons: [B.today, B.ideas] }));
+    return done();
+  }
+  const pushLater = lower.match(/^push (.+?) (\d+) min later$/);
+  if (pushLater) {
+    const ev = next.events.find((e) => e.date === todayISO && e.title.toLowerCase() === pushLater[1].trim());
+    if (ev) {
+      const start = minutesToHM(hmToMinutes(ev.start) + Number(pushLater[2]));
+      next.events = next.events.map((e) => (e.id === ev.id ? { ...e, start } : e));
+      next.remindedEventIds = next.remindedEventIds.filter((id) => id !== ev.id); // remind again at the new time
+      push(botText(`ok, *${ev.title}* at ${clockShort(start)}. i'll say so then.`, { buttons: [B.today, B.undo] }));
+      return done();
+    }
+  }
+  const skipIt = lower.match(/^skip (.+?) today$/);
+  if (skipIt && skipIt[1] !== "the call") {
+    const ev = next.events.find((e) => e.date === todayISO && e.title.toLowerCase() === skipIt[1].trim());
+    if (ev) {
+      next.events = next.events.filter((e) => e.id !== ev.id);
+      push(botText(`ok, *${ev.title}* is off today. tomorrow, maybe.`, { buttons: [B.today, B.week] }));
+      return done();
+    }
+  }
   const logged = lower.match(/^(?:i )?(?:called|rang|phoned|spoke to|spoke with|talked to|texted|met|saw|visited|had (?:dinner|lunch|coffee) with) (.+?)(?: (today|yesterday|this morning|last night|earlier))?\.?$/);
   if (logged && (next.people ?? []).some((p) => logged[1].includes(p.toLowerCase()))) {
     const who = (next.people ?? []).find((p) => logged[1].includes(p.toLowerCase()))!;
@@ -1445,10 +1478,13 @@ export function dueReminders(user: UserRecord): ChatMessage[] {
   const lead = user.settings.reminderLeadMinutes;
   const out: ChatMessage[] = [];
   const starredTodos = user.todos.filter((t) => t.starred && !t.done);
+  // Plans with people are the point, so they get the widest window: 15 minutes before,
+  // and right through the plan itself, so a late tick still lands a "now's a good time".
   const upcoming = user.events.filter((e) => {
     if (e.date !== today) return false;
     const start = hmToMinutes(e.start);
     const delta = start - minutesNow;
+    if (e.kind === "social") return delta <= Math.max(lead, 15) && delta >= -e.durationMinutes;
     return delta <= Math.max(lead * 2, 45) && delta >= -5;
   });
 
@@ -1456,14 +1492,22 @@ export function dueReminders(user: UserRecord): ChatMessage[] {
     const start = hmToMinutes(e.start);
     const delta = start - minutesNow;
     const starLead = e.starred ? Math.max(lead * 2, 45) : lead;
+    if (e.kind === "social" && !user.remindedEventIds.includes(e.id)) {
+      const who = (user.people ?? []).find((p) => e.title.toLowerCase().includes(p.toLowerCase()));
+      const home = /\b(home|mum|mom|dad|parents|family|nani|nana|grand)/i.test(e.title);
+      const text =
+        delta > 0
+          ? `*${e.title}* in ${delta} min${home ? ". they'll be glad" : ""}.`
+          : `*${e.title}* was for ${clockShort(e.start)}. ${home || who ? "have you? if not, now's a good time." : "now's a good time."}`;
+      out.push(botText(text, { tag: "reminder", buttons: [btn("did", "Did it", `did ${e.title}`), btn("later", "Push 30 min later", `push ${e.title} 30 min later`), btn("skip", "Skip it today", `skip ${e.title} today`)] }));
+      continue;
+    }
     if (delta <= starLead && delta >= -5 && !user.remindedEventIds.includes(e.id)) {
       out.push(
         botText(
           e.starred
             ? `★ *${e.title}* starts at ${clockShort(e.start)}. finish this before the next thing.`
-            : e.kind === "social"
-              ? `*${e.title}* at ${clockShort(e.start)}. hope it's a good one.`
-              : `heads up, *${e.title}* starts at ${clockShort(e.start)}.`,
+            : `heads up, *${e.title}* starts at ${clockShort(e.start)}.`,
           { tag: "reminder" },
         ),
       );

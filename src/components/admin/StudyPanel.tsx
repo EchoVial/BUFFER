@@ -148,6 +148,8 @@ export function StudyPanel({ password }: { password: string }) {
   const [showTable, setShowTable] = useState(false);
   const [activeCount, setActiveCount] = useState(0);
   const [nudgeReport, setNudgeReport] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [sendState, setSendState] = useState<string | null>(null);
   const headers = { "x-admin-password": password };
 
   async function load() {
@@ -189,6 +191,18 @@ export function StudyPanel({ password }: { password: string }) {
     const data = (await res.json()) as { results?: Array<{ name: string; how: string }>; error?: string };
     setNudgeReport(data.error ?? (data.results ?? []).map((r) => `${r.name}: ${r.how}`).join(" · "));
     await load();
+  }
+
+  async function sendMessage() {
+    if (!open || !draft.trim()) return;
+    if (!window.confirm(`send this to ${open.name} on WhatsApp, as Buffer?\n\n${draft.trim()}`)) return;
+    setSendState("sending...");
+    const res = await fetch("/api/admin", { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ action: "send-message", userId: open.id, text: draft.trim() }) });
+    const data = (await res.json()) as { error?: string };
+    if (data.error) return setSendState(data.error);
+    setSendState("sent");
+    setDraft("");
+    await openRow(open);
   }
 
   async function downloadCsv() {
@@ -385,6 +399,23 @@ export function StudyPanel({ password }: { password: string }) {
             </CardDescription>
           </CardHeader>
           <CardContent className="max-h-[70vh] space-y-2 overflow-y-auto text-sm">
+            {open ? (
+              <div className="mb-3 rounded-lg border border-zinc-700 p-2">
+                <textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  placeholder={`a message to ${open.name}, sent as Buffer`}
+                  rows={2}
+                  className="w-full resize-none bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-500"
+                />
+                <div className="mt-1 flex items-center justify-between">
+                  <span className="text-xs text-zinc-500">{sendState ?? "lands in their chat and in this transcript, tagged nudge"}</span>
+                  <Button size="sm" onClick={() => void sendMessage()} disabled={!draft.trim()}>
+                    Send
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             {lines.map((m) => (
               <div key={m.id} className={m.role === "user" ? "ml-10 rounded-lg bg-emerald-900/40 p-2" : "mr-10 rounded-lg bg-zinc-800 p-2"}>
                 <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
