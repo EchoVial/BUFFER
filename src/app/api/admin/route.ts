@@ -16,6 +16,9 @@ import { botText, setupNudge } from "@/lib/bot";
 import { deliver, ensureTemplate, lastSendError, sendTemplate, waConfigured } from "@/lib/wa";
 import { originFromRequest } from "@/lib/calendar";
 
+const INVITE_TEMPLATE = "buffer_invite";
+const INVITE_TEMPLATE_BODY =
+  "hey, it's Buffer, the WhatsApp assistant from the study you signed up for. reply *hi* here whenever you're ready. setup is two questions, then you're in.";
 const SETUP_TEMPLATE = "buffer_setup_nudge";
 const SETUP_TEMPLATE_BODY = "hey {{1}}, it's Buffer. we stopped halfway through setting you up. reply *hi* here and i'll pick up where we left off. two questions, then you're in.";
 
@@ -112,6 +115,7 @@ export async function POST(req: NextRequest) {
     userId?: string;
     hidden?: boolean;
     text?: string;
+    phone?: string;
     appSettings?: Parameters<typeof patchAppSettings>[0];
     defaultUserSettings?: Partial<UserSettings>;
   };
@@ -162,6 +166,20 @@ export async function POST(req: NextRequest) {
       results.push({ name: user.name, how });
     }
     return NextResponse.json({ ok: true, pending: pending.length, template, results });
+  }
+  // Someone on Meta's recipient list who has never written: no record exists and no 24-hour window is
+  // open, so only an approved template can reach them. Their record is created when they reply.
+  if (body.action === "send-invite" && body.phone) {
+    if (!waConfigured()) return NextResponse.json({ error: "WhatsApp is not configured on this deployment" }, { status: 400 });
+    const digits = body.phone.replace(/\D/g, "");
+    if (digits.length < 8) return NextResponse.json({ error: "that does not look like a number with a country code" }, { status: 400 });
+    const template = await ensureTemplate(INVITE_TEMPLATE, INVITE_TEMPLATE_BODY, []);
+    if (template !== "APPROVED") {
+      return NextResponse.json({ error: template === "PENDING" ? "the invite template is waiting for Meta's approval (usually minutes). try again shortly." : `invite template is ${template.toLowerCase()}` }, { status: 409 });
+    }
+    const ok = await sendTemplate(digits, INVITE_TEMPLATE, []);
+    if (!ok) return NextResponse.json({ error: `WhatsApp refused it: ${lastSendError?.code ?? ""} ${lastSendError?.message ?? ""}`.trim() }, { status: 502 });
+    return NextResponse.json({ ok: true });
   }
   // A researcher's own message to one participant, sent as Buffer and kept in the transcript.
   if (body.action === "send-message" && body.userId && body.text?.trim()) {

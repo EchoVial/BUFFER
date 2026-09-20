@@ -90,7 +90,7 @@ export async function ensureTemplate(name: string, body: string, example: string
       name,
       language: "en_US",
       category: "UTILITY",
-      components: [{ type: "BODY", text: body, example: { body_text: [example] } }],
+      components: [example.length ? { type: "BODY", text: body, example: { body_text: [example] } } : { type: "BODY", text: body }],
     }),
   });
   if (!res.ok) {

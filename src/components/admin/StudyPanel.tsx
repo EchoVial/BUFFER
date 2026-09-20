@@ -149,6 +149,8 @@ export function StudyPanel({ password }: { password: string }) {
   const [activeCount, setActiveCount] = useState(0);
   const [nudgeReport, setNudgeReport] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [invitePhone, setInvitePhone] = useState("");
+  const [inviteState, setInviteState] = useState<string | null>(null);
   const [sendState, setSendState] = useState<string | null>(null);
   const headers = { "x-admin-password": password };
 
@@ -191,6 +193,17 @@ export function StudyPanel({ password }: { password: string }) {
     const data = (await res.json()) as { results?: Array<{ name: string; how: string }>; error?: string };
     setNudgeReport(data.error ?? (data.results ?? []).map((r) => `${r.name}: ${r.how}`).join(" · "));
     await load();
+  }
+
+  async function sendInvite() {
+    const digits = invitePhone.replace(/\D/g, "");
+    if (digits.length < 8) return setInviteState("type the number with the country code, like +91 98765 43210");
+    if (!window.confirm(`send the Buffer invite to +${digits} on WhatsApp?`)) return;
+    setInviteState("sending...");
+    const res = await fetch("/api/admin", { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ action: "send-invite", phone: digits }) });
+    const data = (await res.json()) as { error?: string };
+    setInviteState(data.error ?? `sent to +${digits}. they appear here once they reply.`);
+    if (!data.error) setInvitePhone("");
   }
 
   async function sendMessage() {
@@ -246,6 +259,19 @@ export function StudyPanel({ password }: { password: string }) {
         </div>
       </div>
       {nudgeReport && <p className="text-sm text-zinc-300">{nudgeReport}</p>}
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-zinc-400">invite someone on Meta&apos;s list who has not written yet:</span>
+        <input
+          value={invitePhone}
+          onChange={(e) => setInvitePhone(e.target.value)}
+          placeholder="+91 ..."
+          className="w-44 rounded-md border border-zinc-700 bg-transparent px-2 py-1 text-zinc-100 outline-none placeholder:text-zinc-500"
+        />
+        <Button size="sm" variant="outline" className="border-zinc-700 bg-transparent text-zinc-200 hover:bg-zinc-800" onClick={() => void sendInvite()} disabled={!invitePhone.trim()}>
+          Send invite
+        </Button>
+        {inviteState && <span className="text-zinc-300">{inviteState}</span>}
+      </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
