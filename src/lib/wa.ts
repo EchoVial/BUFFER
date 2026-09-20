@@ -17,6 +17,9 @@ export function waConfigured(): boolean {
   return Boolean(process.env.WA_TOKEN && process.env.WA_PHONE_ID);
 }
 
+/** Meta's error code from the last failed send in this instance (131047 = outside the 24-hour window). */
+export let lastSendError: { code?: number; message?: string } | undefined;
+
 async function post(payload: Record<string, unknown>): Promise<boolean> {
   const token = process.env.WA_TOKEN;
   const phoneId = process.env.WA_PHONE_ID;
@@ -27,10 +30,87 @@ async function post(payload: Record<string, unknown>): Promise<boolean> {
     body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", ...payload }),
   });
   if (!res.ok) {
-    console.warn("[buffer] whatsapp send failed", res.status, (await res.text()).slice(0, 400));
+    const text = await res.text();
+    try {
+      const err = (JSON.parse(text) as { error?: { code?: number; message?: string } }).error;
+      lastSendError = { code: err?.code, message: err?.message };
+    } catch {
+      lastSendError = { message: text.slice(0, 200) };
+    }
+    console.warn("[buffer] whatsapp send failed", res.status, text.slice(0, 400));
     return false;
   }
+  lastSendError = undefined;
   return true;
+}
+
+/**
+ * The WhatsApp Business Account this number belongs to: WA_WABA_ID, else the
+ * one the token was granted, else the account this project was built on.
+ */
+export async function wabaId(): Promise<string | undefined> {
+  if (process.env.WA_WABA_ID) return process.env.WA_WABA_ID;
+  const token = process.env.WA_TOKEN;
+  const phoneId = process.env.WA_PHONE_ID;
+  if (!token || !phoneId) return undefined;
+  try {
+    const me = await fetch(`${GRAPH}/debug_token?input_token=${encodeURIComponent(token)}`, { headers: { Authorization: `Bearer ${token}` } });
+    const data = me.ok ? ((await me.json()) as { data?: { granular_scopes?: Array<{ target_ids?: string[] }> } }).data : undefined;
+    for (const scope of data?.granular_scopes ?? []) {
+      for (const id of scope.target_ids ?? []) {
+        const r = await fetch(`${GRAPH}/${id}/phone_numbers?fields=id`, { headers: { Authorization: `Bearer ${token}` } });
+        if (r.ok && ((await r.json()) as { data?: Array<{ id: string }> }).data?.some((p) => p.id === phoneId)) return id;
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+  return "1653068239572676";
+}
+
+/**
+ * A message template for reaching someone after WhatsApp's 24-hour window has
+ * closed (free-form messages bounce with 131047 then). Created on first use;
+ * Meta approves utility templates in minutes. Returns its status.
+ */
+export async function ensureTemplate(name: string, body: string, example: string[]): Promise<"APPROVED" | "PENDING" | "REJECTED" | "MISSING"> {
+  const token = process.env.WA_TOKEN;
+  const waba = await wabaId();
+  if (!token || !waba) return "MISSING";
+  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  const have = await fetch(`${GRAPH}/${waba}/message_templates?name=${encodeURIComponent(name)}&fields=name,status,language`, { headers });
+  if (have.ok) {
+    const found = ((await have.json()) as { data?: Array<{ name: string; status: string }> }).data?.find((t) => t.name === name);
+    if (found) return found.status === "APPROVED" ? "APPROVED" : found.status === "REJECTED" ? "REJECTED" : "PENDING";
+  }
+  const res = await fetch(`${GRAPH}/${waba}/message_templates`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      name,
+      language: "en_US",
+      category: "UTILITY",
+      components: [{ type: "BODY", text: body, example: { body_text: [example] } }],
+    }),
+  });
+  if (!res.ok) {
+    console.warn("[buffer] template create failed", res.status, (await res.text()).slice(0, 300));
+    return "MISSING";
+  }
+  const created = (await res.json()) as { status?: string };
+  return created.status === "APPROVED" ? "APPROVED" : "PENDING";
+}
+
+export function sendTemplate(to: string, name: string, params: string[]) {
+  return post({
+    to,
+    type: "template",
+    template: {
+      name,
+      language: { code: "en_US" },
+      components: params.length ? [{ type: "body", parameters: params.map((p) => ({ type: "text", text: p })) }] : [],
+    },
+  });
 }
 
 export async function markRead(messageId: string): Promise<void> {

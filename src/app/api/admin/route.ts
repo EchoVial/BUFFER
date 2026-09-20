@@ -12,6 +12,12 @@ import {
 } from "@/lib/store";
 import { DEFAULT_USER_SETTINGS, UserSettings } from "@/lib/types";
 import { inStudy, studyDaily, studyIntents, studyRow, transcript, transcriptCsv } from "@/lib/study";
+import { setupNudge } from "@/lib/bot";
+import { deliver, ensureTemplate, lastSendError, sendTemplate, waConfigured } from "@/lib/wa";
+import { originFromRequest } from "@/lib/calendar";
+
+const SETUP_TEMPLATE = "buffer_setup_nudge";
+const SETUP_TEMPLATE_BODY = "hey {{1}}, it's Buffer. we stopped halfway through setting you up. reply *hi* here and i'll pick up where we left off. two questions, then you're in.";
 
 export const dynamic = "force-dynamic";
 
@@ -129,6 +135,32 @@ export async function POST(req: NextRequest) {
       },
     });
     return NextResponse.json({ settings });
+  }
+  // Everyone in the study who stopped mid-setup gets their open question again. Inside WhatsApp's
+  // 24-hour window that is the question itself with buttons; outside it only a template goes through.
+  if (body.action === "nudge-setup") {
+    if (!waConfigured()) return NextResponse.json({ error: "WhatsApp is not configured on this deployment" }, { status: 400 });
+    const origin = originFromRequest(req);
+    const pending = (await listUsers()).filter(inStudy).filter((u) => u.onboarding && u.onboarding !== "done");
+    const template = pending.length ? await ensureTemplate(SETUP_TEMPLATE, SETUP_TEMPLATE_BODY, ["Sam"]) : "MISSING";
+    const results: Array<{ name: string; how: string }> = [];
+    for (const user of pending) {
+      const msg = setupNudge(user);
+      if (!msg) continue;
+      const before = user.messages.length;
+      await deliver(user, msg, origin);
+      let how = lastSendError ? `failed: ${lastSendError.code ?? ""} ${lastSendError.message ?? ""}`.trim() : "sent the open question";
+      if (lastSendError?.code === 131047 || lastSendError?.code === 131026) {
+        // Outside the window: the template, if Meta has approved it yet.
+        if (template === "APPROVED" && (await sendTemplate(user.waPhone!, SETUP_TEMPLATE, [user.name.split(" ")[0]]))) how = "outside the 24h window: sent the template";
+        else how = `outside the 24h window; template is ${template.toLowerCase()}, try again in a few minutes`;
+      }
+      if (how.startsWith("sent") || how.startsWith("outside the 24h window: sent")) {
+        await upsertUser({ ...user, messages: [...user.messages.slice(0, before), { ...msg, tag: "nudge" as const }], updatedAt: new Date().toISOString() });
+      }
+      results.push({ name: user.name, how });
+    }
+    return NextResponse.json({ ok: true, pending: pending.length, template, results });
   }
   if (body.action === "study-hide" && body.userId) {
     const user = await getUserById(body.userId);

@@ -679,6 +679,15 @@ async function handleOnboarding(next: UserRecord, text: string): Promise<ChatMes
   return null;
 }
 
+/** For someone who stopped mid-setup: a short lead and the question they left open, buttons included. */
+export function setupNudge(user: UserRecord): ChatMessage | undefined {
+  const step = user.onboarding;
+  if (!step || step === "done") return undefined;
+  const q = step === "work" ? workQuestion() : step === "unwind" ? unwindQuestion(user) : step === "people" ? peopleQuestion() : step === "calendar" ? calendarQuestion() : notifyQuestion(user);
+  const first = user.name.split(" ")[0];
+  return { ...q, id: uid("msg"), createdAt: new Date().toISOString(), text: `hey ${first}, it's Buffer. we stopped halfway through setting you up. ${q.text}` };
+}
+
 /** Start the chat for a brand new person: intro plus the first question. */
 export function beginChat(user: UserRecord): UserRecord {
   return {

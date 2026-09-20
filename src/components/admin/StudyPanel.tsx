@@ -147,6 +147,7 @@ export function StudyPanel({ password }: { password: string }) {
   const [error, setError] = useState<string | null>(null);
   const [showTable, setShowTable] = useState(false);
   const [activeCount, setActiveCount] = useState(0);
+  const [nudgeReport, setNudgeReport] = useState<string | null>(null);
   const headers = { "x-admin-password": password };
 
   async function load() {
@@ -176,6 +177,17 @@ export function StudyPanel({ password }: { password: string }) {
   async function setHiddenFor(r: StudyRow, value: boolean) {
     await fetch("/api/admin", { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ action: "study-hide", userId: r.id, hidden: value }) });
     if (open?.id === r.id) setOpen(null);
+    await load();
+  }
+
+  async function nudgeSetup() {
+    const unfinished = rows.filter((r) => r.setup !== "done");
+    if (!unfinished.length) return setNudgeReport("everyone has finished setup.");
+    if (!window.confirm(`send ${unfinished.length} ${unfinished.length === 1 ? "person" : "people"} their open setup question on WhatsApp?`)) return;
+    setNudgeReport("sending...");
+    const res = await fetch("/api/admin", { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ action: "nudge-setup" }) });
+    const data = (await res.json()) as { results?: Array<{ name: string; how: string }>; error?: string };
+    setNudgeReport(data.error ?? (data.results ?? []).map((r) => `${r.name}: ${r.how}`).join(" · "));
     await load();
   }
 
@@ -213,9 +225,13 @@ export function StudyPanel({ password }: { password: string }) {
           <Button variant="outline" className="border-zinc-700 bg-transparent text-zinc-200 hover:bg-zinc-800" onClick={() => void load()}>
             Refresh
           </Button>
+          <Button variant="outline" className="border-zinc-700 bg-transparent text-zinc-200 hover:bg-zinc-800" onClick={() => void nudgeSetup()}>
+            Nudge unfinished setups
+          </Button>
           <Button onClick={() => void downloadCsv()}>Download CSV</Button>
         </div>
       </div>
+      {nudgeReport && <p className="text-sm text-zinc-300">{nudgeReport}</p>}
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
