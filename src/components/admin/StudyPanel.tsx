@@ -150,6 +150,7 @@ export function StudyPanel({ password }: { password: string }) {
   const [nudgeReport, setNudgeReport] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [invitePhone, setInvitePhone] = useState("");
+  const [personState, setPersonState] = useState<Record<string, string>>({});
   const [inviteState, setInviteState] = useState<string | null>(null);
   const [sendState, setSendState] = useState<string | null>(null);
   const headers = { "x-admin-password": password };
@@ -193,6 +194,15 @@ export function StudyPanel({ password }: { password: string }) {
     const data = (await res.json()) as { results?: Array<{ name: string; how: string }>; error?: string };
     setNudgeReport(data.error ?? (data.results ?? []).map((r) => `${r.name}: ${r.how}`).join(" · "));
     await load();
+  }
+
+  async function nudgePerson(r: StudyRow, who: string) {
+    if (!window.confirm(`send ${r.name} Buffer's nudge about ${who}?`)) return;
+    setPersonState((s) => ({ ...s, [r.id]: `nudging about ${who}...` }));
+    const res = await fetch("/api/admin", { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ action: "nudge-person", userId: r.id, who }) });
+    const data = (await res.json()) as { error?: string; how?: string };
+    setPersonState((s) => ({ ...s, [r.id]: data.error ?? `${who}: ${data.how ?? "sent"}` }));
+    if (!data.error) await load();
   }
 
   async function sendInvite() {
@@ -359,7 +369,7 @@ export function StudyPanel({ password }: { password: string }) {
                   <TableHead className="text-zinc-400">Days</TableHead>
                   <TableHead className="text-zinc-400">Work / people / reserved</TableHead>
                   <TableHead className="text-zinc-400">Nudges</TableHead>
-                  <TableHead className="text-zinc-400">People</TableHead>
+                  <TableHead className="text-zinc-400">People (tap a name to nudge)</TableHead>
                   <TableHead className="text-zinc-400">Last seen</TableHead>
                   <TableHead className="text-zinc-400"></TableHead>
                 </TableRow>
@@ -391,7 +401,25 @@ export function StudyPanel({ password }: { password: string }) {
                         nudges {r.notify} · {r.digests} morning pictures · calendar {r.calendar}
                       </div>
                     </TableCell>
-                    <TableCell className="text-xs text-zinc-200">{r.people.join(", ") || "none"}</TableCell>
+                    <TableCell className="text-xs text-zinc-200">
+                      <div className="flex flex-wrap gap-1">
+                        {r.people.map((p) => (
+                          <button
+                            key={p}
+                            title={`send ${r.name} Buffer's nudge about ${p}`}
+                            className="rounded-full border border-violet-500/60 px-2 py-0.5 text-violet-200 hover:bg-violet-950"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void nudgePerson(r, p);
+                            }}
+                          >
+                            {p}
+                          </button>
+                        ))}
+                        {!r.people.length ? <span className="text-zinc-500">none</span> : null}
+                      </div>
+                      {personState[r.id] ? <div className="mt-1 text-zinc-400">{personState[r.id]}</div> : null}
+                    </TableCell>
                     <TableCell className="text-xs text-zinc-400">{when(r.lastSeen)}</TableCell>
                     <TableCell className="text-xs text-zinc-200">
                       <button

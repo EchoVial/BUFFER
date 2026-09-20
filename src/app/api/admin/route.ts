@@ -12,13 +12,15 @@ import {
 } from "@/lib/store";
 import { DEFAULT_USER_SETTINGS, UserSettings } from "@/lib/types";
 import { inStudy, studyDaily, studyIntents, studyRow, transcript, transcriptCsv } from "@/lib/study";
-import { botText, setupNudge } from "@/lib/bot";
+import { botText, nudgeAbout, setupNudge } from "@/lib/bot";
 import { deliver, ensureTemplate, lastSendError, sendTemplate, waConfigured } from "@/lib/wa";
 import { originFromRequest } from "@/lib/calendar";
 
 const INVITE_TEMPLATE = "buffer_invite";
 const INVITE_TEMPLATE_BODY =
   "hey, it's Buffer, the WhatsApp assistant from the study you signed up for. reply *hi* here whenever you're ready. setup is two questions, then you're in.";
+const PEOPLE_TEMPLATE = "buffer_people_nudge";
+const PEOPLE_TEMPLATE_BODY = "hey {{1}}, it's Buffer. you're off the clock. {{2}} would love to hear from you. even ten minutes counts. reply here and i'll help you plan it.";
 const SETUP_TEMPLATE = "buffer_setup_nudge";
 const SETUP_TEMPLATE_BODY = "hey {{1}}, it's Buffer. we stopped halfway through setting you up. reply *hi* here and i'll pick up where we left off. two questions, then you're in.";
 
@@ -116,6 +118,7 @@ export async function POST(req: NextRequest) {
     hidden?: boolean;
     text?: string;
     phone?: string;
+    who?: string;
     appSettings?: Parameters<typeof patchAppSettings>[0];
     defaultUserSettings?: Partial<UserSettings>;
   };
@@ -180,6 +183,26 @@ export async function POST(req: NextRequest) {
     const ok = await sendTemplate(digits, INVITE_TEMPLATE, []);
     if (!ok) return NextResponse.json({ error: `WhatsApp refused it: ${lastSendError?.code ?? ""} ${lastSendError?.message ?? ""}`.trim() }, { status: 502 });
     return NextResponse.json({ ok: true });
+  }
+  // A name pressed on the dashboard: Buffer's own nudge about that person, exactly as the evening one reads.
+  if (body.action === "nudge-person" && body.userId && body.who) {
+    const user = await getUserById(body.userId);
+    if (!user?.waPhone) return NextResponse.json({ error: "not a WhatsApp participant" }, { status: 400 });
+    const who = (user.people ?? []).find((p) => p.toLowerCase() === body.who!.toLowerCase()) ?? body.who;
+    const msg = nudgeAbout(user, who, "a small nudge from Buffer.");
+    await deliver(user, msg, originFromRequest(req));
+    let how = "sent";
+    if (lastSendError?.code === 131047 || lastSendError?.code === 131026) {
+      // Quiet for over 24 hours: only a template gets through.
+      const template = await ensureTemplate(PEOPLE_TEMPLATE, PEOPLE_TEMPLATE_BODY, ["Sam", "Mum"]);
+      if (template === "APPROVED" && (await sendTemplate(user.waPhone, PEOPLE_TEMPLATE, [user.name.split(" ")[0], who]))) how = "quiet for over 24h, so the template went instead";
+      else return NextResponse.json({ error: `quiet for over 24h; the template is ${template.toLowerCase()}, try again in a few minutes` }, { status: 409 });
+    } else if (lastSendError) {
+      return NextResponse.json({ error: `WhatsApp refused it: ${lastSendError.code ?? ""} ${lastSendError.message ?? ""}`.trim() }, { status: 502 });
+    }
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: user.settings.timezone || "UTC" });
+    await upsertUser({ ...user, messages: [...user.messages, msg], lastNudgeDate: today, updatedAt: new Date().toISOString() });
+    return NextResponse.json({ ok: true, how });
   }
   // A researcher's own message to one participant, sent as Buffer and kept in the transcript.
   if (body.action === "send-message" && body.userId && body.text?.trim()) {

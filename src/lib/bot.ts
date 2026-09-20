@@ -1579,17 +1579,28 @@ export function unwindNudge(user: UserRecord): { message?: ChatMessage; patch?: 
   if (calledToday) return { patch: { lastNudgeDate: today } };
   const people = user.people ?? [];
   const idx = (user.nudgeIndex ?? 0) % Math.max(1, people.length);
-  const who = pickPerson(user);
-  const group = Boolean(who && isGroup(who));
   const kept = reserved ? `you kept ${span(reserved.start, reserved.durationMinutes)} clear tonight.` : "you're off the clock.";
+  return {
+    message: nudgeAbout(user, pickPerson(user), kept),
+    patch: { lastNudgeDate: today, nudgeIndex: idx + 1 },
+  };
+}
+
+/**
+ * The nudge about one person: how long it has been, a one-tap chat link when the
+ * number is known, and the three replies. Used by the evening nudge and by a
+ * researcher pressing a name on the dashboard.
+ */
+export function nudgeAbout(user: UserRecord, who: string | undefined, opening = "you're off the clock."): ChatMessage {
+  const group = Boolean(who && isGroup(who));
   const gap = who ? daysSince(user, who) : undefined;
   const since = who && gap !== undefined && gap >= 3 ? ` ${gap} days since ${group ? `your ${who.toLowerCase()}` : who}.` : "";
   const link = who ? chatLink(user, who, "hey, free tonight. got ten minutes for a call?") : undefined;
   const text = who
     ? group
-      ? `${kept}${since} some time with your ${who.toLowerCase()} would be a good use of it. even half an hour.`
-      : `${kept}${since} ${who} would love to hear from you. even ten minutes counts.${link ? `\n${link}` : ""}`
-    : `${kept} a ten-minute call to someone you love counts more than it feels like it does.`;
+      ? `${opening}${since} some time with your ${who.toLowerCase()} would be a good use of it. even half an hour.`
+      : `${opening}${since} ${who} would love to hear from you. even ten minutes counts.${link ? `\n${link}` : ""}`
+    : `${opening} a ten-minute call to someone you love counts more than it feels like it does.`;
   const buttons = who
     ? [
         group ? btn("now", "Doing it now", `calling ${who.toLowerCase()} now`) : btn("now", `Calling ${who} now`.length <= 20 ? `Calling ${who} now` : `Call ${who} now`, `calling ${who.toLowerCase()} now`),
@@ -1597,8 +1608,5 @@ export function unwindNudge(user: UserRecord): { message?: ChatMessage; patch?: 
         btn("skip", "Skip today", "skip the call today"),
       ]
     : [btn("who", "Add a person", "nudge me to call "), btn("skip", "Skip today", "skip the call today"), B.today];
-  return {
-    message: botText(text, { buttons, tag: "nudge" }),
-    patch: { lastNudgeDate: today, nudgeIndex: idx + 1 },
-  };
+  return botText(text, { buttons, tag: "nudge" });
 }
